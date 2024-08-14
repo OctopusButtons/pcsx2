@@ -982,6 +982,11 @@ void ps_blend(inout float4 Color, inout float4 As_rgba, float2 pos_xy)
 			As_rgba.rgb = (float3)Alpha * (float3)(128.0f / 255.0f);
 			Color.rgb = (float3)127.5f;
 		}
+		else if (PS_BLEND_HW == 5)
+		{
+			// Needed for blend multipass dithering.
+			Color.rgb = (float3)0.0f;
+		}
 	}
 }
 

@@ -937,6 +937,9 @@ float As = As_rgba.a;
 #endif
 	As_rgba.rgb = vec3(Alpha) * vec3(128.0f / 255.0f);
 	Color.rgb = vec3(127.5f);
+#elif PS_BLEND_HW == 5
+	// Needed for blend multipass dithering.
+	Color.rgb = vec3(0.0f);
 #endif
 
 #endif

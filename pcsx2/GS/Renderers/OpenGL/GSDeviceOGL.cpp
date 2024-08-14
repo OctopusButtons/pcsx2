@@ -2612,21 +2612,40 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 
 	SendHWDraw(config, psel.ps.IsFeedbackLoop());
 
-	if (config.blend_multi_pass.enable)
+	if (config.blend_multi_pass.pass2.enable)
 	{
 		if (config.blend.IsEffective(config.colormask))
 		{
-			OMSetBlendState(config.blend_multi_pass.blend.enable, s_gl_blend_factors[config.blend_multi_pass.blend.src_factor],
-				s_gl_blend_factors[config.blend_multi_pass.blend.dst_factor], s_gl_blend_ops[config.blend_multi_pass.blend.op],
-				s_gl_blend_factors[config.blend_multi_pass.blend.src_factor_alpha], s_gl_blend_factors[config.blend_multi_pass.blend.dst_factor_alpha],
-				config.blend_multi_pass.blend.constant_enable, config.blend_multi_pass.blend.constant);
+			OMSetBlendState(config.blend_multi_pass.pass2.blend.enable, s_gl_blend_factors[config.blend_multi_pass.pass2.blend.src_factor],
+				s_gl_blend_factors[config.blend_multi_pass.pass2.blend.dst_factor], s_gl_blend_ops[config.blend_multi_pass.pass2.blend.op],
+				s_gl_blend_factors[config.blend_multi_pass.pass2.blend.src_factor_alpha], s_gl_blend_factors[config.blend_multi_pass.pass2.blend.dst_factor_alpha],
+				config.blend_multi_pass.pass2.blend.constant_enable, config.blend_multi_pass.pass2.blend.constant);
 		}
 		else
 		{
 			OMSetBlendState();
 		}
-		psel.ps.blend_hw = config.blend_multi_pass.blend_hw;
-		psel.ps.dither = config.blend_multi_pass.dither;
+		psel.ps.blend_hw = config.blend_multi_pass.pass2.blend_hw;
+		psel.ps.dither = config.blend_multi_pass.pass2.dither;
+		SetupPipeline(psel);
+		SendHWDraw(config, psel.ps.IsFeedbackLoop());
+	}
+
+	if (config.blend_multi_pass.pass3.enable)
+	{
+		if (config.blend.IsEffective(config.colormask))
+		{
+			OMSetBlendState(config.blend_multi_pass.pass3.blend.enable, s_gl_blend_factors[config.blend_multi_pass.pass3.blend.src_factor],
+				s_gl_blend_factors[config.blend_multi_pass.pass3.blend.dst_factor], s_gl_blend_ops[config.blend_multi_pass.pass3.blend.op],
+				s_gl_blend_factors[config.blend_multi_pass.pass3.blend.src_factor_alpha], s_gl_blend_factors[config.blend_multi_pass.pass3.blend.dst_factor_alpha],
+				config.blend_multi_pass.pass3.blend.constant_enable, config.blend_multi_pass.pass3.blend.constant);
+		}
+		else
+		{
+			OMSetBlendState();
+		}
+		psel.ps.blend_hw = config.blend_multi_pass.pass3.blend_hw;
+		psel.ps.dither = config.blend_multi_pass.pass3.dither;
 		SetupPipeline(psel);
 		SendHWDraw(config, psel.ps.IsFeedbackLoop());
 	}

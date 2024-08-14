@@ -2653,12 +2653,20 @@ void GSDevice11::RenderHW(GSHWDrawConfig& config)
 	OMSetRenderTargets(hdr_rt ? hdr_rt : config.rt, config.ds, &config.scissor);
 	DrawIndexedPrimitive();
 
-	if (config.blend_multi_pass.enable)
+	if (config.blend_multi_pass.pass2.enable)
 	{
-		config.ps.blend_hw = config.blend_multi_pass.blend_hw;
-		config.ps.dither = config.blend_multi_pass.dither;
+		config.ps.blend_hw = config.blend_multi_pass.pass2.blend_hw;
+		config.ps.dither = config.blend_multi_pass.pass2.dither;
 		SetupPS(config.ps, &config.cb_ps, config.sampler);
-		SetupOM(config.depth, OMBlendSelector(config.colormask, config.blend_multi_pass.blend), config.blend_multi_pass.blend.constant);
+		SetupOM(config.depth, OMBlendSelector(config.colormask, config.blend_multi_pass.pass2.blend), config.blend_multi_pass.pass2.blend.constant);
+		DrawIndexedPrimitive();
+	}
+	if (config.blend_multi_pass.pass3.enable)
+	{
+		config.ps.blend_hw = config.blend_multi_pass.pass3.blend_hw;
+		config.ps.dither = config.blend_multi_pass.pass3.dither;
+		SetupPS(config.ps, &config.cb_ps, config.sampler);
+		SetupOM(config.depth, OMBlendSelector(config.colormask, config.blend_multi_pass.pass3.blend), config.blend_multi_pass.pass3.blend.constant);
 		DrawIndexedPrimitive();
 	}
 

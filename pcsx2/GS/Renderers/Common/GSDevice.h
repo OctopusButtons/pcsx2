@@ -176,6 +176,7 @@ enum class HWBlendType
 	SRC_ALPHA_DST_FACTOR    = 2, // Use the dest color as blend factor, Cs is set to (Alpha - 1).
 	SRC_DOUBLE              = 3, // Double source color.
 	SRC_HALF_ONE_DST_FACTOR = 4, // Use the dest color as blend factor, Cs is set to 0.5, additionally divide As or Af by 2.
+	SRC_DITHER              = 5, // Use the src color as dither to either add or subtract from Cd.
 
 	BMIX1_ALPHA_HIGH_ONE    = 1, // Blend formula is replaced when alpha is higher than 1.
 	BMIX1_SRC_HALF          = 2, // Impossible blend will always be wrong on hw, divide Cs by 2.
@@ -717,12 +718,22 @@ struct alignas(16) GSHWDrawConfig
 
 	struct BlendMultiPass
 	{
-		BlendState blend;
-		u8 blend_hw;
-		u8 dither;
-		bool enable;
+		struct
+		{
+			BlendState blend;
+			u8 blend_hw;
+			u8 dither;
+			bool enable;
+		} pass2{};
+		struct
+		{
+			BlendState blend;
+			u8 blend_hw;
+			u8 dither;
+			bool enable;
+		} pass3{};
 	};
-	static_assert(sizeof(BlendMultiPass) == 8, "blend multi pass is 8 bytes");
+	static_assert(sizeof(BlendMultiPass) == 16, "blend multi pass is 8 bytes");
 
 	BlendMultiPass blend_multi_pass;
 
