@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -21,8 +21,8 @@ private:
 	int getGlobalClampingModeIndex(int vunum) const;
 	int getClampingModeIndex(int vunum) const;
 	void setClampingMode(int vunum, int index);
+	void onSavestateCompressionTypeChanged();
 
 	SettingsWindow* m_dialog;
-
 	Ui::AdvancedSystemSettingsWidget m_ui;
 };

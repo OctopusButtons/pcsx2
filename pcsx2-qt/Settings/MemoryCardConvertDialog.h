@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -41,6 +41,7 @@ private:
 	void SetType_32();
 	void SetType_64();
 	void SetType_Folder();
+	void FileOpenError(const QString errmsg);
 	
 	Ui::MemoryCardConvertDialog m_ui;
 

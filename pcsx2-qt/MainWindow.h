@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -98,12 +98,13 @@ public:
 	__fi QLabel* getStatusResolutionWidget() const { return m_status_resolution_widget; }
 	__fi QLabel* getStatusFPSWidget() const { return m_status_fps_widget; }
 	__fi QLabel* getStatusVPSWidget() const { return m_status_vps_widget; }
+	__fi QLabel* getStatusSpeedWidget() const { return m_status_speed_widget; }
 
 	/// Rescans a single file. NOTE: Happens on UI thread.
 	void rescanFile(const std::string& path);
 
 	void openDebugger();
-
+	void checkMousePosition(int x, int y);
 public Q_SLOTS:
 	void checkForUpdates(bool display_message, bool force_check);
 	void refreshGameList(bool invalidate_cache);
@@ -127,7 +128,7 @@ private Q_SLOTS:
 	void mouseModeRequested(bool relative_mode, bool hide_cursor);
 	void releaseRenderWindow();
 	void focusDisplayWidget();
-
+	void setupMouseMoveHandler();
 	void onGameListRefreshComplete();
 	void onGameListRefreshProgress(const QString& status, int current, int total);
 	void onGameListSelectionChanged();
@@ -156,6 +157,8 @@ private Q_SLOTS:
 	void onViewGamePropertiesActionTriggered();
 	void onGitHubRepositoryActionTriggered();
 	void onSupportForumsActionTriggered();
+	void onWikiActionTriggered();
+	void onDocumentationActionTriggered();
 	void onDiscordServerActionTriggered();
 	void onAboutActionTriggered();
 	void onToolsOpenDataDirectoryTriggered();
@@ -178,9 +181,7 @@ private Q_SLOTS:
 	void onInputRecNewActionTriggered();
 	void onInputRecPlayActionTriggered();
 	void onInputRecStopActionTriggered();
-	void onInputRecOpenSettingsTriggered();
 	void onInputRecOpenViewer();
-
 	void onVMStarting();
 	void onVMStarted();
 	void onVMPaused();
@@ -238,6 +239,7 @@ private:
 	bool isRenderingToMain() const;
 	bool shouldHideMouseCursor() const;
 	bool shouldHideMainWindow() const;
+	bool shouldMouseLock() const;
 	void switchToGameListView();
 	void switchToEmulationView();
 
@@ -295,6 +297,7 @@ private:
 	QLabel* m_status_renderer_widget = nullptr;
 	QLabel* m_status_fps_widget = nullptr;
 	QLabel* m_status_vps_widget = nullptr;
+	QLabel* m_status_speed_widget = nullptr;
 	QLabel* m_status_resolution_widget = nullptr;
 
 	QMenu* m_settings_toolbar_menu = nullptr;

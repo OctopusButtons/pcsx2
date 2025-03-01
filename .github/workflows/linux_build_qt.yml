@@ -55,7 +55,7 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_COMPRESS: true
       CCACHE_COMPRESSLEVEL: 9
-      CCACHE_MAXSIZE: 100M
+      CCACHE_MAXSIZE: 500M
 
     steps:
       - name: Checkout Repository
@@ -117,7 +117,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/deps
-          key: ${{ inputs.os }} ${{ inputs.platform }} deps ${{ hashFiles('.github/workflows/scripts/linux/build-dependencies-qt.sh') }}
+          key: ${{ inputs.os }} ${{ inputs.platform }} deps ${{ hashFiles('.github/workflows/scripts/linux/build-dependencies-qt.sh', '.github/workflows/scripts/common/*.patch') }}
 
       - name: Build Dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'

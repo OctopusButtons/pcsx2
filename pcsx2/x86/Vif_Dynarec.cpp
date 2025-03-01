@@ -1,11 +1,10 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
-#include "newVif_UnpackSSE.h"
+#include "Vif_UnpackSSE.h"
 #include "MTVU.h"
 #include "common/Perf.h"
 #include "common/StringUtil.h"
-#include "fmt/core.h"
 
 void dVifReset(int idx)
 {
@@ -40,30 +39,37 @@ __fi void makeMergeMask(u32& x)
 	x = ((x & 0x40) >> 6) | ((x & 0x10) >> 3) | (x & 4) | ((x & 1) << 3);
 }
 
+#ifdef _WIN32
+__fi void makeMergeMaskAllColumns(u32& x)
+{
+	x = ((x & 0x40404040) >> 6) | ((x & 0x10101010) >> 3) | (x & 0x04040404) | ((x & 0x01010101) << 3);
+}
+#endif
+
 __fi void VifUnpackSSE_Dynarec::SetMasks(int cS) const
 {
 	const int idx = v.idx;
 	const vifStruct& vif = MTVU_VifX;
 
 	//This could have ended up copying the row when there was no row to write.1810080
-	u32 m0 = vB.mask; //The actual mask example 0x03020100
-	u32 m3 = ((m0 & 0xaaaaaaaa) >> 1) & ~m0; //all the upper bits, so our example 0x01010000 & 0xFCFDFEFF = 0x00010000 just the cols (shifted right for maskmerge)
-	u32 m2 = (m0 & 0x55555555) & (~m0 >> 1); // 0x1000100 & 0xFE7EFF7F = 0x00000100 Just the row
+	const u32 m0 = vB.mask; //The actual mask example 0x03020100
+	const u32 m3 = ((m0 & 0xaaaaaaaa) >> 1) & ~m0; //all the upper bits, so our example 0x01010000 & 0xFCFDFEFF = 0x00010000 just the cols (shifted right for maskmerge)
+	const u32 m2 = (m0 & 0x55555555) & (~m0 >> 1); // 0x1000100 & 0xFE7EFF7F = 0x00000100 Just the row
 
 	if ((doMask && m2) || doMode)
 	{
-		xMOVAPS(xmmRow, ptr128[&vif.MaskRow]);
+		xMOVAPS(rowReg, ptr128[&vif.MaskRow]);
 		MSKPATH3_LOG("Moving row");
 	}
 
 	if (doMask && m3)
 	{
 		VIF_LOG("Merging Cols");
-		xMOVAPS(xmmCol0, ptr128[&vif.MaskCol]);
-		if ((cS >= 2) && (m3 & 0x0000ff00)) xPSHUF.D(xmmCol1, xmmCol0, _v1);
-		if ((cS >= 3) && (m3 & 0x00ff0000)) xPSHUF.D(xmmCol2, xmmCol0, _v2);
-		if ((cS >= 4) && (m3 & 0xff000000)) xPSHUF.D(xmmCol3, xmmCol0, _v3);
-		if ((cS >= 1) && (m3 & 0x000000ff)) xPSHUF.D(xmmCol0, xmmCol0, _v0);
+		xMOVAPS(colRegs[0], ptr128[&vif.MaskCol]);
+		if ((cS >= 2) && (m3 & 0x0000ff00)) xPSHUF.D(colRegs[1], colRegs[0], _v1);
+		if ((cS >= 3) && (m3 & 0x00ff0000)) xPSHUF.D(colRegs[2], colRegs[0], _v2);
+		if ((cS >= 4) && (m3 & 0xff000000)) xPSHUF.D(colRegs[3], colRegs[0], _v3);
+		if ((cS >= 1) && (m3 & 0x000000ff)) xPSHUF.D(colRegs[0], colRegs[0], _v0);
 	}
 	//if (doMask||doMode) loadRowCol((nVifStruct&)v);
 }
@@ -73,7 +79,7 @@ void VifUnpackSSE_Dynarec::doMaskWrite(const xRegisterSSE& regX) const
 	pxAssertMsg(regX.Id <= 1, "Reg Overflow! XMM2 thru XMM6 are reserved for masking.");
 
 	const int cc = std::min(vCL, 3);
-	u32 m0 = (vB.mask >> (cc * 8)) & 0xff; //The actual mask example 0xE4 (protect, col, row, clear)
+	const u32 m0 = (vB.mask >> (cc * 8)) & 0xff; //The actual mask example 0xE4 (protect, col, row, clear)
 	u32 m3 = ((m0 & 0xaa) >> 1) & ~m0; //all the upper bits (cols shifted right) cancelling out any write protects 0x10
 	u32 m2 = (m0 & 0x55) & (~m0 >> 1); // all the lower bits (rows)cancelling out any write protects 0x04
 	u32 m4 = (m0 & ~((m3 << 1) | m2)) & 0x55; //  = 0xC0 & 0x55 = 0x40 (for merge mask)
@@ -84,12 +90,12 @@ void VifUnpackSSE_Dynarec::doMaskWrite(const xRegisterSSE& regX) const
 
 	if (doMask && m2) // Merge MaskRow
 	{
-		mVUmergeRegs(regX, xmmRow, m2);
+		mVUmergeRegs(regX, rowReg, m2);
 	}
 
 	if (doMask && m3) // Merge MaskCol
 	{
-		mVUmergeRegs(regX, xRegisterSSE(xmmCol0.Id + cc), m3);
+		mVUmergeRegs(regX, colRegs[cc], m3);
 	}
 	
 	if (doMode)
@@ -101,30 +107,30 @@ void VifUnpackSSE_Dynarec::doMaskWrite(const xRegisterSSE& regX) const
 
 		if (m5 < 0xf)
 		{
-			xPXOR(xmmTemp, xmmTemp);
 			if (doMode == 3)
 			{
-				mVUmergeRegs(xmmRow, regX, m5);
+				mVUmergeRegs(rowReg, regX, m5);
 			}
 			else
 			{
-				mVUmergeRegs(xmmTemp, xmmRow, m5);
-				xPADD.D(regX, xmmTemp);
+				xPXOR(tmpReg, tmpReg);
+				mVUmergeRegs(tmpReg, rowReg, m5);
+				xPADD.D(regX, tmpReg);
 				if (doMode == 2)
-					mVUmergeRegs(xmmRow, regX, m5);
+					mVUmergeRegs(rowReg, regX, m5);
 			}
 		}
 		else
 		{
 			if (doMode == 3)
 			{
-				xMOVAPS(xmmRow, regX);
+				xMOVAPS(rowReg, regX);
 			}
 			else
 			{
-				xPADD.D(regX, xmmRow);
+				xPADD.D(regX, rowReg);
 				if (doMode == 2)
-					xMOVAPS(xmmRow, regX);
+					xMOVAPS(rowReg, regX);
 			}
 		}
 	}
@@ -138,7 +144,7 @@ void VifUnpackSSE_Dynarec::doMaskWrite(const xRegisterSSE& regX) const
 void VifUnpackSSE_Dynarec::writeBackRow() const
 {
 	const int idx = v.idx;
-	xMOVAPS(ptr128[&(MTVU_VifX.MaskRow)], xmmRow);
+	xMOVAPS(ptr128[&(MTVU_VifX.MaskRow)], rowReg);
 
 	VIF_LOG("nVif: writing back row reg! [doMode = %d]", doMode);
 }
@@ -213,7 +219,9 @@ void VifUnpackSSE_Dynarec::ModUnpack(int upknum, bool PostOp)
 		case 3:
 		case 7:
 		case 11:
-			pxFailRel(fmt::format("Vpu/Vif - Invalid Unpack! [{}]", upknum).c_str());
+			// TODO: Needs hardware testing.
+			// Dynasty Warriors 5: Empire  - Player 2 chose a character menu.
+			Console.Warning("Vpu/Vif: Invalid Unpack %d", upknum);
 			break;
 	}
 }
@@ -253,11 +261,91 @@ void VifUnpackSSE_Dynarec::CompileRoutine()
 
 	pxAssume(vCL == 0);
 
+	// Need a zero register for V2_32/V3 unpacks.
+	const bool needXmmZero = (upkNum >= 8 && upkNum <= 10) || upkNum == 4;
+
+#ifdef _WIN32
+	// See SetMasks()
+	const u32 m0 = vB.mask;
+	u32 m3 = ((m0 & 0xaaaaaaaa) >> 1) & ~m0;
+	u32 m2 = (m0 & 0x55555555) & (~m0 >> 1);
+
+	int regsUsed = 2;
+	// Allocate column registers
+	if (doMask && m3)
+	{
+		colRegs[0] = xRegisterSSE(regsUsed++);
+
+		const int cS = isFill ? blockSize : cycleSize;
+		if ((cS >= 2) && (m3 & 0x0000ff00))
+			colRegs[1] = xRegisterSSE(regsUsed++);
+		if ((cS >= 3) && (m3 & 0x00ff0000))
+			colRegs[2] = xRegisterSSE(regsUsed++);
+		if ((cS >= 4) && (m3 & 0xff000000))
+			colRegs[3] = xRegisterSSE(regsUsed++);
+		// Column 0 already accounted for
+	}
+
+	std::array<xRegisterSSE, 3> nonVolatileRegs;
+
+	// Allocate row register
+	if ((doMask && m2) || doMode)
+	{
+		rowReg = xRegisterSSE(regsUsed);
+		if (regsUsed - 6 >= 0)
+			nonVolatileRegs[regsUsed - 6] = rowReg;
+		regsUsed++;
+	}
+
+	// see doMaskWrite()
+	u32 m4 = (m0 & ~((m3 << 1) | m2)) & 0x55555555;
+	makeMergeMaskAllColumns(m2);
+	makeMergeMaskAllColumns(m3);
+	makeMergeMaskAllColumns(m4);
+	const u32 m5 = ~(m2 | m3 | m4) & 0x0f0f0f0f;
+
+	// Allocate temp register
+	if (doMode && (doMode != 3) &&
+		doMask && m5 != 0x0f0f0f0f)
+	{
+		tmpReg = xRegisterSSE(regsUsed);
+		if (regsUsed - 6 >= 0)
+			nonVolatileRegs[regsUsed - 6] = tmpReg;
+		regsUsed++;
+	}
+
+	// Allocate zero register
+	if (needXmmZero)
+	{
+		zeroReg = xRegisterSSE(regsUsed);
+		if (regsUsed - 6 >= 0)
+			nonVolatileRegs[regsUsed - 6] = zeroReg;
+		regsUsed++;
+	}
+	
+	regsUsed -= 6;
+	// Backup non-volatile registers if needed
+	if (regsUsed > 0)
+	{
+		xSUB(rsp, 8 + 16 * regsUsed);
+		for (int i = 0; i < regsUsed; i++)
+			xMOVAPS(ptr128[rsp + 16 * i], nonVolatileRegs[i]);
+	}
+#else
+	colRegs[0] = xmm2;
+	colRegs[1] = xmm3;
+	colRegs[2] = xmm4;
+	colRegs[3] = xmm5;
+	rowReg = xmm6;
+	tmpReg = xmm7;
+	// zeroReg already set;
+#endif
+
 	// Value passed determines # of col regs we need to load
 	SetMasks(isFill ? blockSize : cycleSize);
 
-	// Need a zero register for V2_32/V3 unpacks.
-	if ((upkNum >= 8 && upkNum <= 10) || upkNum == 4)
+	
+	if (needXmmZero)
 		xXOR.PS(zeroReg, zeroReg);
 
 	while (vNum)
@@ -306,6 +394,16 @@ void VifUnpackSSE_Dynarec::CompileRoutine()
 	if (doMode >= 2)
 		writeBackRow();
 
+#ifdef _WIN32
+	// Restore non-volatile registers
+	if (regsUsed > 0)
+	{
+		for (int i = 0; i < regsUsed; i++)
+			xMOVAPS(nonVolatileRegs[i], ptr128[rsp + 16 * i]);
+		xADD(rsp, 8 + 16 * regsUsed);
+	}
+#endif
+
 	xRET();
 }
 
@@ -315,8 +413,8 @@ static u16 dVifComputeLength(uint cl, uint wl, u8 num, bool isFill)
 
 	if (!isFill)
 	{
-		uint skipSize = (cl - wl) * 16;
-		uint blocks   = (num + (wl - 1)) / wl; //Need to round up num's to calculate skip size correctly.
+		const uint skipSize = (cl - wl) * 16;
+		const uint blocks   = (num + (wl - 1)) / wl; //Need to round up num's to calculate skip size correctly.
 		length += (blocks - 1) * skipSize;
 	}
 
@@ -368,15 +466,15 @@ _vifT __fi void dVifUnpack(const u8* data, bool isFill)
 	// in u32 (aka x86 register).
 	//
 	// Warning the order of data in hash_key/key0/key1 depends on the nVifBlock struct
-	u32 hash_key = (u32)(upkType & 0xFF) << 8 | (vifRegs.num & 0xFF);
+	const u32 hash_key = static_cast<u32>(upkType & 0xFF) << 8 | (vifRegs.num & 0xFF);
 
-	u32 key1 = ((u32)vifRegs.cycle.wl << 24) | ((u32)vifRegs.cycle.cl << 16) | ((u32)(vif.start_aligned & 0xFF) << 8) | ((u32)vifRegs.mode & 0xFF);
+	u32 key1 = (static_cast<u32>(vifRegs.cycle.wl) << 24) | (static_cast<u32>(vifRegs.cycle.cl) << 16) | (static_cast<u32>(vif.start_aligned & 0xFF) << 8) | (static_cast<u32>(vifRegs.mode) & 0xFF);
 	if ((upkType & 0xf) != 9)
 		key1 &= 0xFFFF01FF;
 
 	// Zero out the mask parameter if it's unused -- games leave random junk
 	// values here which cause false recblock cache misses.
-	u32 key0 = doMask ? vifRegs.mask : 0;
+	const u32 key0 = doMask ? vifRegs.mask : 0;
 
 	block.hash_key = hash_key;
 	block.key0 = key0;
@@ -395,7 +493,7 @@ _vifT __fi void dVifUnpack(const u8* data, bool isFill)
 
 	{ // Execute the block
 		const VURegs& VU = vuRegs[idx];
-		const uint vuMemLimit = idx ? 0x4000 : 0x1000;
+		constexpr uint vuMemLimit = idx ? 0x4000 : 0x1000;
 
 		u8* startmem = VU.Mem + (vif.tag.addr & (vuMemLimit - 0x10));
 		u8* endmem   = VU.Mem + vuMemLimit;

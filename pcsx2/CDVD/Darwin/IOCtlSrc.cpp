@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "CDVD/CDVDdiscReader.h"
@@ -239,6 +239,11 @@ bool IOCtlSrc::ReadCDInfo()
 #else
 	return false;
 #endif
+}
+
+bool IOCtlSrc::ReadTrackSubQ(cdvdSubQ* subQ) const
+{
+	return false;
 }
 
 bool IOCtlSrc::DiscReady()

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "IsoFileFormats.h"
@@ -65,7 +65,7 @@ static s32 ISOreadSubQ(u32 lsn, cdvdSubQ* subq)
 	// fake it
 	u8 min, sec, frm;
 	subq->ctrl = 4;
-	subq->mode = 1;
+	subq->adr = 1;
 	subq->trackNum = itob(1);
 	subq->trackIndex = itob(1);
 

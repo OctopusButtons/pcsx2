@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "AutoUpdaterDialog.h"
@@ -10,10 +10,10 @@
 #include "QtProgressCallback.h"
 #include "QtUtils.h"
 #include "SetupWizardDialog.h"
-#include "svnrev.h"
 
 #include "pcsx2/CDVD/CDVDcommon.h"
 #include "pcsx2/Achievements.h"
+#include "pcsx2/BuildVersion.h"
 #include "pcsx2/CDVD/CDVD.h"
 #include "pcsx2/Counters.h"
 #include "pcsx2/DebugTools/Debug.h"
@@ -51,7 +51,7 @@
 #include <QtGui/QClipboard>
 #include <QtGui/QInputMethod>
 
-#include "fmt/core.h"
+#include "fmt/format.h"
 
 #include <cmath>
 #include <csignal>
@@ -998,8 +998,9 @@ void EmuThread::updatePerformanceMetrics(bool force)
 		QString gs_stat;
 		if (THREAD_VU1)
 		{
-			gs_stat = tr("Slot: %1 | %2 | EE: %3% | VU: %4% | GS: %5%")
+			gs_stat = tr("Slot: %1 | Volume: %2% | %3 | EE: %4% | VU: %5% | GS: %6%")
 						  .arg(SaveStateSelectorUI::GetCurrentSlot())
+						  .arg(SPU2::GetOutputVolume())
 						  .arg(gs_stat_str.c_str())
 						  .arg(PerformanceMetrics::GetCPUThreadUsage(), 0, 'f', 0)
 						  .arg(PerformanceMetrics::GetVUThreadUsage(), 0, 'f', 0)
@@ -1007,8 +1008,9 @@ void EmuThread::updatePerformanceMetrics(bool force)
 		}
 		else
 		{
-			gs_stat = tr("Slot: %1 | %2 | EE: %3% | GS: %4%")
+			gs_stat = tr("Slot: %1 | Volume: %2% | %3 | EE: %4% | GS: %5%")
 						  .arg(SaveStateSelectorUI::GetCurrentSlot())
+						  .arg(SPU2::GetOutputVolume())
 						  .arg(gs_stat_str.c_str())
 						  .arg(PerformanceMetrics::GetCPUThreadUsage(), 0, 'f', 0)
 						  .arg(PerformanceMetrics::GetGSThreadUsage(), 0, 'f', 0);
@@ -1052,16 +1054,22 @@ void EmuThread::updatePerformanceMetrics(bool force)
 		if (gfps != m_last_game_fps || force)
 		{
 			QMetaObject::invokeMethod(g_main_window->getStatusFPSWidget(), "setText", Qt::QueuedConnection,
-				Q_ARG(const QString&, tr("Game: %1 FPS").arg(gfps, 0, 'f', 0)));
+				Q_ARG(const QString&, tr("FPS: %1").arg(gfps, 0, 'f', 0)));
 			m_last_game_fps = gfps;
 		}
 
-		if (speed != m_last_speed || vfps != m_last_video_fps || force)
+		if (vfps != m_last_video_fps || force)
 		{
 			QMetaObject::invokeMethod(g_main_window->getStatusVPSWidget(), "setText", Qt::QueuedConnection,
-				Q_ARG(const QString&, tr("Video: %1 FPS (%2%)").arg(vfps, 0, 'f', 0).arg(speed, 0, 'f', 0)));
-			m_last_speed = speed;
+				Q_ARG(const QString&, tr("VPS: %1 ").arg(vfps, 0, 'f', 0)));
 			m_last_video_fps = vfps;
+
+		if (speed != m_last_speed || force)
+		{
+			QMetaObject::invokeMethod(g_main_window->getStatusSpeedWidget(), "setText", Qt::QueuedConnection,
+				Q_ARG(const QString&, tr("Speed: %1% ").arg(speed, 0, 'f', 0)));
+			m_last_speed = speed;
+		}
 		}
 	}
 }
@@ -1462,7 +1470,7 @@ bool Host::RequestResetSettings(bool folders, bool core, bool controllers, bool 
 
 QString QtHost::GetAppNameAndVersion()
 {
-	return QStringLiteral("PCSX2 " GIT_REV);
+	return QString("PCSX2 %1").arg(BuildVersion::GitRev);
 }
 
 QString QtHost::GetAppConfigSuffix()
@@ -2032,6 +2040,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -version: Displays version information and exits.\n");
 	std::fprintf(stderr, "  -batch: Enables batch mode (exits after shutting down).\n");
 	std::fprintf(stderr, "  -nogui: Hides main window while running (implies batch mode).\n");
+	std::fprintf(stderr, "  -portable: Force enable portable mode to store data in local PCSX2 path instead of the default configuration path.\n");
 	std::fprintf(stderr, "  -elf <file>: Overrides the boot ELF with the specified filename.\n");
 	std::fprintf(stderr, "  -gameargs <string>: passes the specified quoted space-delimited string of launch arguments.\n");
 	std::fprintf(stderr, "  -disc <path>: Uses the specified host DVD drive as a source.\n");
@@ -2101,6 +2110,11 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			{
 				s_batch_mode = true;
 				s_nogui_mode = true;
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-portable")))
+			{
+				EmuConfig.IsPortableMode = true;
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-fastboot")))

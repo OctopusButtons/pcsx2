@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "AboutDialog.h"
@@ -19,7 +19,6 @@
 #include "Settings/MemoryCardCreateDialog.h"
 #include "Tools/InputRecording/InputRecordingViewer.h"
 #include "Tools/InputRecording/NewInputRecordingDlg.h"
-#include "svnrev.h"
 
 #include "pcsx2/Achievements.h"
 #include "pcsx2/CDVD/CDVDcommon.h"
@@ -100,10 +99,22 @@ static QString s_current_disc_serial;
 static quint32 s_current_disc_crc;
 static quint32 s_current_running_crc;
 
+static bool s_record_on_start = false;
+static QString s_path_to_recording_for_record_on_start;
+
 MainWindow::MainWindow()
 {
 	pxAssert(!g_main_window);
 	g_main_window = this;
+
+	//  Native window rendering is broken in wayland.
+	//  Let's work around it by disabling it for every widget besides
+	//  DisplayWidget.
+	//  Additionally, alien widget rendering is much more performant, so we
+	//  should have a nice responsiveness boost in our UI :)
+	//  QTBUG-133919, reported upstream by govanify 
+	QGuiApplication::setAttribute(Qt::AA_NativeWindows, false);
+	QGuiApplication::setAttribute(Qt::AA_DontCreateNativeWidgetSiblings, true);
 
 #if !defined(_WIN32) && !defined(__APPLE__)
 	s_use_central_widget = DisplayContainer::isRunningOnWayland();
@@ -115,6 +126,8 @@ MainWindow::~MainWindow()
 	// make sure the game list isn't refreshing, because it's on a separate thread
 	cancelGameListRefresh();
 	destroySubWindows();
+
+	Common::DetachMousePositionCb();
 
 	// we compare here, since recreate destroys the window later
 	if (g_main_window == this)
@@ -151,6 +164,9 @@ void MainWindow::initialize()
 #ifdef _WIN32
 	registerForDeviceNotifications();
 #endif
+
+	if (Host::GetBoolSettingValue("EmuCore", "EnableMouseLock", false))
+		setupMouseMoveHandler();
 }
 
 // TODO: Figure out how to set this in the .ui file
@@ -228,16 +244,20 @@ void MainWindow::setupAdditionalUi()
 
 	m_status_resolution_widget = new QLabel(m_ui.statusBar);
 	m_status_resolution_widget->setFixedHeight(16);
-	m_status_resolution_widget->setFixedSize(70, 16);
+	m_status_resolution_widget->setFixedSize(75, 16);
 	m_status_resolution_widget->hide();
 
 	m_status_fps_widget = new QLabel(m_ui.statusBar);
-	m_status_fps_widget->setFixedSize(85, 16);
+	m_status_fps_widget->setFixedSize(60, 16);
 	m_status_fps_widget->hide();
 
 	m_status_vps_widget = new QLabel(m_ui.statusBar);
-	m_status_vps_widget->setFixedSize(125, 16);
+	m_status_vps_widget->setFixedSize(60, 16);
 	m_status_vps_widget->hide();
+
+	m_status_speed_widget = new QLabel(m_ui.statusBar);
+	m_status_speed_widget->setFixedSize(90, 16);
+	m_status_speed_widget->hide();
 
 	m_settings_toolbar_menu = new QMenu(m_ui.toolBar);
 	m_settings_toolbar_menu->addAction(m_ui.actionSettings);
@@ -342,6 +362,8 @@ void MainWindow::connectSignals()
 	connect(m_ui.actionViewGameProperties, &QAction::triggered, this, &MainWindow::onViewGamePropertiesActionTriggered);
 	connect(m_ui.actionGitHubRepository, &QAction::triggered, this, &MainWindow::onGitHubRepositoryActionTriggered);
 	connect(m_ui.actionSupportForums, &QAction::triggered, this, &MainWindow::onSupportForumsActionTriggered);
+	connect(m_ui.actionWiki, &QAction::triggered, this, &MainWindow::onWikiActionTriggered);
+	connect(m_ui.actionDocumentation, &QAction::triggered, this, &MainWindow::onDocumentationActionTriggered);
 	connect(m_ui.actionDiscordServer, &QAction::triggered, this, &MainWindow::onDiscordServerActionTriggered);
 	connect(m_ui.actionAboutQt, &QAction::triggered, qApp, &QApplication::aboutQt);
 	connect(m_ui.actionAbout, &QAction::triggered, this, &MainWindow::onAboutActionTriggered);
@@ -719,7 +741,48 @@ void MainWindow::updateAdvancedSettingsVisibility()
 void MainWindow::onVideoCaptureToggled(bool checked)
 {
 	if (!s_vm_valid)
+	{
+		if (!s_record_on_start)
+		{
+			QMessageBox msgbox(this);
+			msgbox.setIcon(QMessageBox::Question);
+			msgbox.setWindowIcon(QtHost::GetAppIcon());
+			msgbox.setWindowTitle(tr("Record On Boot"));
+			msgbox.setWindowModality(Qt::WindowModal);
+			msgbox.setText(tr("Did you want to start recording on boot?"));
+			msgbox.addButton(QMessageBox::Yes);
+			msgbox.addButton(QMessageBox::No);
+			msgbox.setDefaultButton(QMessageBox::Yes);
+			if (msgbox.exec() == QMessageBox::Yes)
+			{
+				const QString container(QString::fromStdString(
+					Host::GetStringSettingValue("EmuCore/GS", "CaptureContainer", Pcsx2Config::GSOptions::DEFAULT_CAPTURE_CONTAINER)));
+				const QString filter(tr("%1 Files (*.%2)").arg(container.toUpper()).arg(container));
+
+				QString temp(QStringLiteral("%1.%2").arg(QString::fromStdString(GSGetBaseVideoFilename())).arg(container));
+				temp = QDir::toNativeSeparators(QFileDialog::getSaveFileName(this, tr("Video Capture"), temp, filter));
+				s_path_to_recording_for_record_on_start = temp;
+				if (s_path_to_recording_for_record_on_start.isEmpty())
+					return;
+				s_record_on_start = true;
+			}
+		}
+		else
+		{
+			QMessageBox msgbox(this);
+			msgbox.setIcon(QMessageBox::Question);
+			msgbox.setWindowIcon(QtHost::GetAppIcon());
+			msgbox.setWindowTitle(tr("Record On Boot"));
+			msgbox.setWindowModality(Qt::WindowModal);
+			msgbox.setText(tr("Did you want to cancel recording on boot?"));
+			msgbox.addButton(QMessageBox::Yes);
+			msgbox.addButton(QMessageBox::No);
+			msgbox.setDefaultButton(QMessageBox::Yes);
+			if (msgbox.exec() == QMessageBox::Yes)
+				s_record_on_start = false;
+		}
 		return;
+	}
 
 	// Reset the checked state, we'll get updated by the GS thread.
 	QSignalBlocker sb(m_ui.actionVideoCapture);
@@ -731,16 +794,26 @@ void MainWindow::onVideoCaptureToggled(bool checked)
 		return;
 	}
 
-	const QString container(QString::fromStdString(
-		Host::GetStringSettingValue("EmuCore/GS", "CaptureContainer", Pcsx2Config::GSOptions::DEFAULT_CAPTURE_CONTAINER)));
-	const QString filter(tr("%1 Files (*.%2)").arg(container.toUpper()).arg(container));
+	if (s_record_on_start && !s_path_to_recording_for_record_on_start.isEmpty()) 
+	{
+		// We can't start recording immediately, this is called before full GS init (specifically the fps amount)
+		// and GSCapture ends up unhappy.
+		// TODO: Pass some sort of flag or callback to the GS thread to start recording on frame 0.
+		Host::AddOSDMessage(tr("Recording will start in a moment").toStdString(), 3.0f);
+		QTimer::singleShot(2000, []() { g_emu_thread->beginCapture(s_path_to_recording_for_record_on_start); });
+	}
+	else
+	{
+		const QString container(QString::fromStdString(
+			Host::GetStringSettingValue("EmuCore/GS", "CaptureContainer", Pcsx2Config::GSOptions::DEFAULT_CAPTURE_CONTAINER)));
+		const QString filter(tr("%1 Files (*.%2)").arg(container.toUpper()).arg(container));
 
-	QString path(QStringLiteral("%1.%2").arg(QString::fromStdString(GSGetBaseVideoFilename())).arg(container));
-	path = QDir::toNativeSeparators(QFileDialog::getSaveFileName(this, tr("Video Capture"), path, filter));
-	if (path.isEmpty())
-		return;
-
-	g_emu_thread->beginCapture(path);
+		QString path(QStringLiteral("%1.%2").arg(QString::fromStdString(GSGetBaseVideoFilename())).arg(container));
+		path = QDir::toNativeSeparators(QFileDialog::getSaveFileName(this, tr("Video Capture"), path, filter));
+		if (path.isEmpty())
+			return;
+		g_emu_thread->beginCapture(path);
+	}
 }
 
 void MainWindow::onCaptureStarted(const QString& filename)
@@ -885,8 +958,6 @@ void MainWindow::updateEmulationActions(bool starting, bool running, bool stoppi
 	m_ui.actionToolbarSaveState->setEnabled(running);
 
 	m_ui.actionViewGameProperties->setEnabled(running);
-
-	m_ui.actionVideoCapture->setEnabled(running);
 	if (!running && m_ui.actionVideoCapture->isChecked())
 	{
 		QSignalBlocker sb(m_ui.actionVideoCapture);
@@ -953,6 +1024,7 @@ void MainWindow::updateStatusBarWidgetVisibility()
 	Update(m_status_resolution_widget, s_vm_valid, 0);
 	Update(m_status_fps_widget, s_vm_valid, 0);
 	Update(m_status_vps_widget, s_vm_valid, 0);
+	Update(m_status_speed_widget, s_vm_valid, 0);
 }
 
 void MainWindow::updateWindowTitle()
@@ -1063,6 +1135,21 @@ bool MainWindow::shouldHideMainWindow() const
 	return (Host::GetBoolSettingValue("UI", "HideMainWindowWhenRunning", false) && !g_emu_thread->shouldRenderToMain()) ||
 		   (g_emu_thread->shouldRenderToMain() && (isRenderingFullscreen() || m_is_temporarily_windowed)) ||
 		   QtHost::InNoGUIMode();
+}
+
+bool MainWindow::shouldMouseLock() const
+{
+	if (!s_vm_valid || s_vm_paused)
+		return false;
+
+	if (!Host::GetBoolSettingValue("EmuCore", "EnableMouseLock", false))
+		return false;
+
+	bool windowsHidden = (!m_debugger_window || m_debugger_window->isHidden()) &&
+						 (!m_controller_settings_window || m_controller_settings_window->isHidden()) &&
+						 (!m_settings_window || m_settings_window->isHidden());
+
+	return windowsHidden && (isActiveWindow() || isRenderingFullscreen());
 }
 
 bool MainWindow::shouldAbortForMemcardBusy(const VMLock& lock)
@@ -1342,9 +1429,8 @@ void MainWindow::onGameListEntryContextMenuRequested(const QPoint& point)
 		if (action->isEnabled())
 		{
 			connect(action, &QAction::triggered, [entry]() {
-				SettingsWindow::openGamePropertiesDialog(entry, entry->title,
-					(entry->type != GameList::EntryType::ELF) ? entry->serial : std::string(),
-					entry->crc);
+				SettingsWindow::openGamePropertiesDialog(entry,
+					entry->title, entry->serial, entry->crc, entry->type == GameList::EntryType::ELF);
 			});
 		}
 
@@ -1560,7 +1646,7 @@ void MainWindow::onViewGamePropertiesActionTriggered()
 		if (entry)
 		{
 			SettingsWindow::openGamePropertiesDialog(
-				entry, entry->title, s_current_elf_override.isEmpty() ? entry->serial : std::string(), entry->crc);
+				entry, entry->title, entry->serial, entry->crc, !s_current_elf_override.isEmpty());
 			return;
 		}
 	}
@@ -1576,12 +1662,12 @@ void MainWindow::onViewGamePropertiesActionTriggered()
 	if (s_current_elf_override.isEmpty())
 	{
 		SettingsWindow::openGamePropertiesDialog(
-			nullptr, s_current_title.toStdString(), s_current_disc_serial.toStdString(), s_current_disc_crc);
+			nullptr, s_current_title.toStdString(), s_current_disc_serial.toStdString(), s_current_disc_crc, false);
 	}
 	else
 	{
 		SettingsWindow::openGamePropertiesDialog(
-			nullptr, s_current_title.toStdString(), std::string(), s_current_disc_crc);
+			nullptr, s_current_title.toStdString(), std::string(), s_current_disc_crc, true);
 	}
 }
 
@@ -1593,6 +1679,16 @@ void MainWindow::onGitHubRepositoryActionTriggered()
 void MainWindow::onSupportForumsActionTriggered()
 {
 	QtUtils::OpenURL(this, AboutDialog::getSupportForumsUrl());
+}
+
+void MainWindow::onWikiActionTriggered()
+{
+	QtUtils::OpenURL(this, AboutDialog::getWikiUrl());
+}
+
+void MainWindow::onDocumentationActionTriggered()
+{
+	QtUtils::OpenURL(this, AboutDialog::getDocumentationUrl());
 }
 
 void MainWindow::onDiscordServerActionTriggered()
@@ -1718,8 +1814,36 @@ void MainWindow::onCreateMemoryCardOpenRequested()
 
 void MainWindow::updateTheme()
 {
+	// The debugger hates theme changes.
+	// We have unfortunately to destroy it and recreate it.
+	const bool debugger_is_open = m_debugger_window ? m_debugger_window->isVisible() : false;
+	const QSize debugger_size = m_debugger_window ? m_debugger_window->size() : QSize();
+	const QPoint debugger_pos = m_debugger_window ? m_debugger_window->pos() : QPoint();
+	if (m_debugger_window)
+	{
+		if (QMessageBox::question(this, tr("Theme Change"),
+				tr("Changing the theme will close the debugger window. Any unsaved data will be lost. Do you want to continue?"),
+				QMessageBox::Yes | QMessageBox::No) == QMessageBox::No)
+		{
+			return;
+		}
+	}
+
 	QtHost::UpdateApplicationTheme();
 	reloadThemeSpecificImages();
+
+	if (m_debugger_window)
+	{
+		m_debugger_window->deleteLater();
+		m_debugger_window = nullptr;
+		getDebuggerWindow(); // populates m_debugger_window
+		m_debugger_window->resize(debugger_size);
+		m_debugger_window->move(debugger_pos);
+		if (debugger_is_open)
+		{
+			m_debugger_window->show();
+		}
+	}
 }
 
 void MainWindow::reloadThemeSpecificImages()
@@ -1878,11 +2002,6 @@ void MainWindow::onInputRecStopActionTriggered()
 	}
 }
 
-void MainWindow::onInputRecOpenSettingsTriggered()
-{
-	// TODO - Vaser - Implement
-}
-
 InputRecordingViewer* MainWindow::getInputRecordingViewer()
 {
 	if (!m_input_recording_viewer)
@@ -1924,6 +2043,11 @@ void MainWindow::onVMStarted()
 	updateWindowTitle();
 	updateStatusBarWidgetVisibility();
 	updateInputRecordingActions(true);
+	if (s_record_on_start)
+	{
+		m_ui.actionVideoCapture->setChecked(true);
+		s_record_on_start = false;
+	}
 }
 
 void MainWindow::onVMPaused()
@@ -1983,6 +2107,8 @@ void MainWindow::onVMStopped()
 	m_status_resolution_widget->setText(empty_string);
 	m_status_fps_widget->setText(empty_string);
 	m_status_vps_widget->setText(empty_string);
+	m_status_speed_widget->setText(empty_string);
+	m_status_verbose_widget->setText(empty_string);
 
 	updateEmulationActions(false, false, false);
 	updateGameDependentActions();
@@ -2194,6 +2320,15 @@ void MainWindow::registerForDeviceNotifications()
 	DEV_BROADCAST_DEVICEINTERFACE_W filter = {sizeof(DEV_BROADCAST_DEVICEINTERFACE_W), DBT_DEVTYP_DEVICEINTERFACE};
 	m_device_notification_handle =
 		RegisterDeviceNotificationW((HANDLE)winId(), &filter, DEVICE_NOTIFY_WINDOW_HANDLE | DEVICE_NOTIFY_ALL_INTERFACE_CLASSES);
+
+	// Set up the raw input device for mouse grabbing
+	RAWINPUTDEVICE rid;
+	rid.usUsagePage = 0x01; // Generic desktop controls
+	rid.usUsage = 0x02; // Mouse
+	rid.dwFlags = RIDEV_INPUTSINK;
+	rid.hwndTarget = (HWND)winId();
+
+	RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE));
 #endif
 }
 
@@ -2221,6 +2356,26 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
 			g_emu_thread->reloadInputDevices();
 			*result = 1;
 			return true;
+		}
+
+		if (msg->message == WM_INPUT)
+		{
+			UINT dwSize = 40;
+			static BYTE lpb[40];
+			if (GetRawInputData((HRAWINPUT)msg->lParam, RID_INPUT, lpb, &dwSize, sizeof(RAWINPUTHEADER)))
+			{
+				const RAWINPUT* raw = (RAWINPUT*)lpb;
+				if (raw->header.dwType == RIM_TYPEMOUSE)
+				{
+					const RAWMOUSE& mouse = raw->data.mouse;
+					if (mouse.usFlags == MOUSE_MOVE_ABSOLUTE || mouse.usFlags == MOUSE_MOVE_RELATIVE)
+					{
+						POINT cursorPos;
+						GetCursorPos(&cursorPos);
+						checkMousePosition(cursorPos.x, cursorPos.y);
+					}
+				}
+			}
 		}
 	}
 
@@ -2499,6 +2654,53 @@ void MainWindow::focusDisplayWidget()
 QWidget* MainWindow::getDisplayContainer() const
 {
 	return (m_display_container ? static_cast<QWidget*>(m_display_container) : static_cast<QWidget*>(m_display_widget));
+}
+
+void MainWindow::setupMouseMoveHandler()
+{
+	auto mouse_cb_fn = [](int x, int y)
+	{
+		if(g_main_window)
+			g_main_window->checkMousePosition(x, y);
+	};
+	
+	if(!Common::AttachMousePositionCb(mouse_cb_fn))
+	{
+		Console.Warning("Unable to setup mouse position cb!");
+	}
+
+	return;
+}
+
+void MainWindow::checkMousePosition(int x, int y)
+{
+	if (!shouldMouseLock())
+		return;
+
+	const QPoint globalCursorPos = {x, y};
+	QRect windowBounds = isRenderingFullscreen() ? screen()->geometry() : geometry();
+	if (windowBounds.contains(globalCursorPos))
+		return;
+
+	Common::SetMousePosition(
+		std::clamp(globalCursorPos.x(), windowBounds.left(), windowBounds.right()),
+		std::clamp(globalCursorPos.y(), windowBounds.top(), windowBounds.bottom()));
+
+	/*
+		Provided below is how we would handle this if we were using low level hooks (What is used in Common::AttachMouseCb)
+		We currently use rawmouse on Windows, so Common::SetMousePosition called directly works fine.
+	*/
+#if 0
+		// We are currently in a low level hook. SetCursorPos here (what is in Common::SetMousePosition) will not work!
+		// Let's (a)buse Qt's event loop to dispatch the call at a later time, outside of the hook.
+		QMetaObject::invokeMethod(
+			this, [=]() {
+				Common::SetMousePosition(
+					std::clamp(globalCursorPos.x(), windowBounds.left(), windowBounds.right()),
+					std::clamp(globalCursorPos.y(), windowBounds.top(), windowBounds.bottom()));
+			},
+			Qt::QueuedConnection);
+#endif
 }
 
 void MainWindow::saveDisplayWindowGeometryToConfig()

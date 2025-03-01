@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/GS.h"
@@ -9,7 +9,9 @@
 #include "GS/Renderers/Vulkan/VKBuilders.h"
 #include "GS/Renderers/Vulkan/VKShaderCache.h"
 #include "GS/Renderers/Vulkan/VKSwapChain.h"
+#include "GS/Renderers/Common/GSDevice.h"
 
+#include "BuildVersion.h"
 #include "Host.h"
 
 #include "common/Console.h"
@@ -103,16 +105,15 @@ VkInstance GSDeviceVK::CreateVulkanInstance(const WindowInfo& wi, OptionalExtens
 	if (!SelectInstanceExtensions(&enabled_extensions, wi, oe, enable_debug_utils))
 		return VK_NULL_HANDLE;
 
-	// Remember to manually update this every release. We don't pull in svnrev.h here, because
-	// it's only the major/minor version, and rebuilding the file every time something else changes
-	// is unnecessary.
 	VkApplicationInfo app_info = {};
 	app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 	app_info.pNext = nullptr;
 	app_info.pApplicationName = "PCSX2";
-	app_info.applicationVersion = VK_MAKE_VERSION(1, 7, 0);
+	app_info.applicationVersion = VK_MAKE_VERSION(
+		BuildVersion::GitTagHi, BuildVersion::GitTagMid, BuildVersion::GitTagLo);
 	app_info.pEngineName = "PCSX2";
-	app_info.engineVersion = VK_MAKE_VERSION(1, 7, 0);
+	app_info.engineVersion = VK_MAKE_VERSION(
+		BuildVersion::GitTagHi, BuildVersion::GitTagMid, BuildVersion::GitTagLo);
 	app_info.apiVersion = VK_API_VERSION_1_1;
 
 	VkInstanceCreateInfo instance_create_info = {};
@@ -157,7 +158,7 @@ bool GSDeviceVK::SelectInstanceExtensions(ExtensionList* extension_list, const W
 
 	if (extension_count == 0)
 	{
-		Console.Error("Vulkan: No extensions supported by instance.");
+		Console.Error("VK: No extensions supported by instance.");
 		return false;
 	}
 
@@ -170,13 +171,13 @@ bool GSDeviceVK::SelectInstanceExtensions(ExtensionList* extension_list, const W
 				[name](const VkExtensionProperties& properties) { return !strcmp(name, properties.extensionName); }) !=
 			available_extension_list.end())
 		{
-			DevCon.WriteLn("Enabling extension: %s", name);
+			DevCon.WriteLn("VK: Enabling extension: %s", name);
 			extension_list->push_back(name);
 			return true;
 		}
 
 		if (required)
-			Console.Error("Vulkan: Missing required extension %s.", name);
+			Console.Error("VK: Missing required extension %s.", name);
 
 		return false;
 	};
@@ -204,7 +205,7 @@ bool GSDeviceVK::SelectInstanceExtensions(ExtensionList* extension_list, const W
 
 	// VK_EXT_debug_utils
 	if (enable_debug_utils && !SupportsExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false))
-		Console.Warning("Vulkan: Debug report requested, but extension is not available.");
+		Console.Warning("VK: Debug report requested, but extension is not available.");
 
 	oe->vk_ext_swapchain_maintenance1 = (wi.type != WindowInfo::Type::Surfaceless &&
 										 SupportsExtension(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME, false));
@@ -231,7 +232,7 @@ GSDeviceVK::GPUList GSDeviceVK::EnumerateGPUs(VkInstance instance)
 	res = vkEnumeratePhysicalDevices(instance, &gpu_count, physical_devices.data());
 	if (res == VK_INCOMPLETE)
 	{
-		Console.Warning("First vkEnumeratePhysicalDevices() call returned %zu devices, but second returned %u",
+		Console.Warning("VK: First vkEnumeratePhysicalDevices() call returned %zu devices, but second returned %u",
 			physical_devices.size(), gpu_count);
 	}
 	else if (res != VK_SUCCESS)
@@ -254,7 +255,7 @@ GSDeviceVK::GPUList GSDeviceVK::EnumerateGPUs(VkInstance instance)
 		if (VK_API_VERSION_VARIANT(props.apiVersion) == 0 && VK_API_VERSION_MAJOR(props.apiVersion) <= 1 &&
 			VK_API_VERSION_MINOR(props.apiVersion) < 1)
 		{
-			Console.Warning(fmt::format("Ignoring Vulkan GPU '{}' because it only claims support for Vulkan {}.{}.{}",
+			Console.Warning(fmt::format("VK: Ignoring GPU '{}' because it only claims support for Vulkan {}.{}.{}",
 				props.deviceName, VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion),
 				VK_API_VERSION_PATCH(props.apiVersion)));
 			continue;
@@ -265,7 +266,7 @@ GSDeviceVK::GPUList GSDeviceVK::EnumerateGPUs(VkInstance instance)
 		res = vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, nullptr);
 		if (res != VK_SUCCESS)
 		{
-			Console.Warning(fmt::format("Ignoring Vulkan GPU '{}' because vkEnumerateInstanceExtensionProperties() failed: ",
+			Console.Warning(fmt::format("VK: Ignoring GPU '{}' because vkEnumerateInstanceExtensionProperties() failed: ",
 				props.deviceName, Vulkan::VkResultToString(res)));
 			continue;
 		}
@@ -283,7 +284,7 @@ GSDeviceVK::GPUList GSDeviceVK::EnumerateGPUs(VkInstance instance)
 					return (std::strcmp(required_extension_name, ext.extensionName) == 0);
 				}) == available_extension_list.end())
 			{
-				Console.Warning(fmt::format("Ignoring Vulkan GPU '{}' because is is missing required extension {}",
+				Console.Warning(fmt::format("VK: Ignoring GPU '{}' because is is missing required extension {}",
 					props.deviceName, required_extension_name));
 				has_missing_extension = true;
 			}
@@ -360,7 +361,7 @@ bool GSDeviceVK::SelectDeviceExtensions(ExtensionList* extension_list, bool enab
 
 	if (extension_count == 0)
 	{
-		Console.Error("Vulkan: No extensions supported by device.");
+		Console.Error("VK: No extensions supported by device.");
 		return false;
 	}
 
@@ -377,7 +378,7 @@ bool GSDeviceVK::SelectDeviceExtensions(ExtensionList* extension_list, bool enab
 			if (std::none_of(extension_list->begin(), extension_list->end(),
 					[name](const char* existing_name) { return (std::strcmp(existing_name, name) == 0); }))
 			{
-				DevCon.WriteLn("Enabling extension: %s", name);
+				DevCon.WriteLn("VK: Enabling extension: %s", name);
 				extension_list->push_back(name);
 			}
 
@@ -385,7 +386,7 @@ bool GSDeviceVK::SelectDeviceExtensions(ExtensionList* extension_list, bool enab
 		}
 
 		if (required)
-			Console.Error("Vulkan: Missing required extension %s.", name);
+			Console.Error("VK: Missing required extension %s.", name);
 
 		return false;
 	};
@@ -531,12 +532,12 @@ bool GSDeviceVK::CreateDevice(VkSurfaceKHR surface, bool enable_validation_layer
 	}
 	if (m_graphics_queue_family_index == queue_family_count)
 	{
-		Console.Error("Vulkan: Failed to find an acceptable graphics queue.");
+		Console.Error("VK: Failed to find an acceptable graphics queue.");
 		return false;
 	}
 	if (surface != VK_NULL_HANDLE && m_present_queue_family_index == queue_family_count)
 	{
-		Console.Error("Vulkan: Failed to find an acceptable present queue.");
+		Console.Error("VK: Failed to find an acceptable present queue.");
 		return false;
 	}
 
@@ -758,7 +759,7 @@ bool GSDeviceVK::ProcessDeviceExtensions()
 	// confirm we actually support it
 	if (push_descriptor_properties.maxPushDescriptors < NUM_TFX_TEXTURES)
 	{
-		Console.Error("maxPushDescriptors (%u) is below required (%u)", push_descriptor_properties.maxPushDescriptors,
+		Console.Error("VK: maxPushDescriptors (%u) is below required (%u)", push_descriptor_properties.maxPushDescriptors,
 			NUM_TFX_TEXTURES);
 		return false;
 	}
@@ -766,7 +767,7 @@ bool GSDeviceVK::ProcessDeviceExtensions()
 	if (!line_rasterization_feature.bresenhamLines)
 	{
 		// See note in SelectDeviceExtensions().
-		Console.Error("bresenhamLines is not supported.");
+		Console.Error("VK: bresenhamLines is not supported.");
 #ifndef __APPLE__
 		return false;
 #else
@@ -870,7 +871,7 @@ bool GSDeviceVK::CreateAllocator()
 
 			if (heap_size_limits[type.heapIndex] == VK_WHOLE_SIZE)
 			{
-				Console.Warning("Disabling allocation from upload heap #%u (%.2f MB) due to debug device.",
+				Console.Warning("VK: Disabling allocation from upload heap #%u (%.2f MB) due to debug device.",
 					type.heapIndex, static_cast<float>(heap.size) / 1048576.0f);
 				heap_size_limits[type.heapIndex] = 0;
 				has_upload_heap = true;
@@ -1447,22 +1448,22 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugMessengerCallback(VkDebugUtilsMessageSeverit
 {
 	if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
 	{
-		Console.Error("Vulkan debug report: (%s) %s",
+		Console.Error("VK: debug report: (%s) %s",
 			pCallbackData->pMessageIdName ? pCallbackData->pMessageIdName : "", pCallbackData->pMessage);
 	}
 	else if (severity & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT))
 	{
-		Console.Warning("Vulkan debug report: (%s) %s",
+		Console.Warning("VK: debug report: (%s) %s",
 			pCallbackData->pMessageIdName ? pCallbackData->pMessageIdName : "", pCallbackData->pMessage);
 	}
 	else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
 	{
-		Console.WriteLn("Vulkan debug report: (%s) %s",
+		Console.WriteLn("VK: debug report: (%s) %s",
 			pCallbackData->pMessageIdName ? pCallbackData->pMessageIdName : "", pCallbackData->pMessage);
 	}
 	else
 	{
-		DevCon.WriteLn("Vulkan debug report: (%s) %s",
+		DevCon.WriteLn("VK: debug report: (%s) %s",
 			pCallbackData->pMessageIdName ? pCallbackData->pMessageIdName : "", pCallbackData->pMessage);
 	}
 
@@ -2054,7 +2055,7 @@ bool GSDeviceVK::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 
 	if (!CheckFeatures())
 	{
-		Host::ReportErrorAsync("GS", "Your GPU does not support the required Vulkan features.");
+		Host::ReportErrorAsync("GS", TRANSLATE_SV("GSDeviceVK", "Your GPU does not support the required Vulkan features."));
 		return false;
 	}
 
@@ -2173,7 +2174,7 @@ bool GSDeviceVK::UpdateWindow()
 	VkSurfaceKHR surface = VKSwapChain::CreateVulkanSurface(m_instance, m_physical_device, &m_window_info);
 	if (surface == VK_NULL_HANDLE)
 	{
-		Console.Error("Failed to create new surface for swap chain");
+		Console.Error("VK: Failed to create new surface for swap chain");
 		return false;
 	}
 
@@ -2182,7 +2183,7 @@ bool GSDeviceVK::UpdateWindow()
 		!(m_swap_chain = VKSwapChain::Create(m_window_info, surface, present_mode,
 			  Pcsx2Config::GSOptions::TriStateToOptionalBoolean(GSConfig.ExclusiveFullscreenControl))))
 	{
-		Console.Error("Failed to create swap chain");
+		Console.Error("VK: Failed to create swap chain");
 		VKSwapChain::DestroyVulkanSurface(m_instance, &m_window_info, surface);
 		return false;
 	}
@@ -2210,7 +2211,7 @@ void GSDeviceVK::ResizeWindow(s32 new_window_width, s32 new_window_height, float
 	if (!m_swap_chain->ResizeSwapChain(new_window_width, new_window_height, new_window_scale))
 	{
 		// AcquireNextImage() will fail, and we'll recreate the surface.
-		Console.Error("Failed to resize swap chain. Next present will fail.");
+		Console.Error("VK: Failed to resize swap chain. Next present will fail.");
 		return;
 	}
 
@@ -2316,10 +2317,10 @@ GSDevice::PresentResult GSDeviceVK::BeginPresent(bool frame_skip)
 		}
 		else if (res == VK_ERROR_SURFACE_LOST_KHR)
 		{
-			Console.Warning("Surface lost, attempting to recreate");
+			Console.Warning("VK: Surface lost, attempting to recreate");
 			if (!m_swap_chain->RecreateSurface(m_window_info))
 			{
-				Console.Error("Failed to recreate surface after loss");
+				Console.Error("VK: Failed to recreate surface after loss");
 				ExecuteCommandBuffer(false);
 				return PresentResult::FrameSkipped;
 			}
@@ -2494,7 +2495,7 @@ bool GSDeviceVK::CreateDeviceAndSwapChain()
 				return false;
 			}
 
-			ERROR_LOG("Vulkan validation/debug layers requested but are unavailable. Creating non-debug device.");
+			ERROR_LOG("VK: validation/debug layers requested but are unavailable. Creating non-debug device.");
 		}
 	}
 
@@ -2511,7 +2512,8 @@ bool GSDeviceVK::CreateDeviceAndSwapChain()
 		return false;
 	}
 
-	if (!GSConfig.Adapter.empty())
+	const bool is_default_gpu = GSConfig.Adapter == GetDefaultAdapter();
+	if (!(GSConfig.Adapter.empty() || is_default_gpu))
 	{
 		u32 gpu_index = 0;
 		for (; gpu_index < static_cast<u32>(gpus.size()); gpu_index++)
@@ -2532,12 +2534,15 @@ bool GSDeviceVK::CreateDeviceAndSwapChain()
 	}
 	else
 	{
-		INFO_LOG("No GPU requested, using first ({})", gpus[0].second.name);
+		INFO_LOG("{} GPU requested, using first ({})", is_default_gpu ? "Default" : "No", gpus[0].second.name);
 		m_physical_device = gpus[0].first;
 	}
 
 	// Read device physical memory properties, we need it for allocating buffers
 	vkGetPhysicalDeviceProperties(m_physical_device, &m_device_properties);
+
+	// Stores the GPU name
+	m_name = m_device_properties.deviceName;
 
 	// We need this to be at least 32 byte aligned for AVX2 stores.
 	m_device_properties.limits.minUniformBufferOffsetAlignment =
@@ -2620,7 +2625,7 @@ bool GSDeviceVK::CheckFeatures()
 	m_features.vs_expand = !GSConfig.DisableVertexShaderExpand;
 
 	if (!m_features.texture_barrier)
-		Console.Warning("Texture buffers are disabled. This may break some graphical effects.");
+		Console.Warning("VK: Texture buffers are disabled. This may break some graphical effects.");
 
 	// Test for D32S8 support.
 	{
@@ -2666,7 +2671,7 @@ bool GSDeviceVK::CheckFeatures()
 		vkGetPhysicalDeviceFormatProperties(m_physical_device, vkfmt, &props);
 		if ((props.optimalTilingFeatures & bits) != bits)
 		{
-			Host::ReportFormattedErrorAsync("Vulkan Renderer Unavailable",
+			Host::ReportFormattedErrorAsync("VK: Renderer Unavailable",
 				"Required format %u is missing bits, you may need to update your driver. (vk:%u, has:0x%x, needs:0x%x)",
 				fmt, static_cast<unsigned>(vkfmt), props.optimalTilingFeatures, bits);
 			return false;
@@ -4383,14 +4388,14 @@ bool GSDeviceVK::CompileImGuiPipeline()
 	const std::optional<std::string> glsl = ReadShaderSource("shaders/vulkan/imgui.glsl");
 	if (!glsl.has_value())
 	{
-		Console.Error("Failed to read imgui.glsl");
+		Console.Error("VK: Failed to read imgui.glsl");
 		return false;
 	}
 
 	VkShaderModule vs = GetUtilityVertexShader(glsl.value(), "vs_main");
 	if (vs == VK_NULL_HANDLE)
 	{
-		Console.Error("Failed to compile ImGui vertex shader");
+		Console.Error("VK: Failed to compile ImGui vertex shader");
 		return false;
 	}
 	ScopedGuard vs_guard([this, &vs]() { vkDestroyShaderModule(m_device, vs, nullptr); });
@@ -4398,7 +4403,7 @@ bool GSDeviceVK::CompileImGuiPipeline()
 	VkShaderModule ps = GetUtilityFragmentShader(glsl.value(), "ps_main");
 	if (ps == VK_NULL_HANDLE)
 	{
-		Console.Error("Failed to compile ImGui pixel shader");
+		Console.Error("VK: Failed to compile ImGui pixel shader");
 		return false;
 	}
 	ScopedGuard ps_guard([this, &ps]() { vkDestroyShaderModule(m_device, ps, nullptr); });
@@ -4425,7 +4430,7 @@ bool GSDeviceVK::CompileImGuiPipeline()
 	m_imgui_pipeline = gpb.Create(m_device, g_vulkan_shader_cache->GetPipelineCache(), false);
 	if (!m_imgui_pipeline)
 	{
-		Console.Error("Failed to compile ImGui pipeline");
+		Console.Error("VK: Failed to compile ImGui pipeline");
 		return false;
 	}
 
@@ -4470,7 +4475,7 @@ void GSDeviceVK::RenderImGui()
 			const u32 size = sizeof(ImDrawVert) * static_cast<u32>(cmd_list->VtxBuffer.Size);
 			if (!m_vertex_stream_buffer.ReserveMemory(size, sizeof(ImDrawVert)))
 			{
-				Console.Warning("Skipping ImGui draw because of no vertex buffer space");
+				Console.Warning("VK: Skipping ImGui draw because of no vertex buffer space");
 				return;
 			}
 
@@ -4494,7 +4499,7 @@ void GSDeviceVK::RenderImGui()
 			SetScissor(GSVector4i(clip).max_i32(GSVector4i::zero()));
 
 			// Since we don't have the GSTexture...
-			GSTextureVK* tex = static_cast<GSTextureVK*>(pcmd->GetTexID());
+			GSTextureVK* tex = reinterpret_cast<GSTextureVK*>(pcmd->GetTexID());
 			if (tex)
 				SetUtilityTexture(tex, m_linear_sampler);
 
@@ -4514,7 +4519,7 @@ void GSDeviceVK::RenderBlankFrame()
 	VkResult res = m_swap_chain->AcquireNextImage();
 	if (res != VK_SUCCESS)
 	{
-		Console.Error("Failed to acquire image for blank frame present");
+		Console.Error("VK: Failed to acquire image for blank frame present");
 		return;
 	}
 
@@ -5017,13 +5022,13 @@ void GSDeviceVK::ExecuteCommandBuffer(bool wait_for_completion, const char* reas
 	const std::string reason_str(StringUtil::StdStringFromFormatV(reason, ap));
 	va_end(ap);
 
-	Console.Warning("Vulkan: Executing command buffer due to '%s'", reason_str.c_str());
+	Console.Warning("VK: Executing command buffer due to '%s'", reason_str.c_str());
 	ExecuteCommandBuffer(wait_for_completion);
 }
 
 void GSDeviceVK::ExecuteCommandBufferAndRestartRenderPass(bool wait_for_completion, const char* reason)
 {
-	Console.Warning("Vulkan: Executing command buffer due to '%s'", reason);
+	Console.Warning("VK: Executing command buffer due to '%s'", reason);
 
 	const VkRenderPass render_pass = m_current_render_pass;
 	const GSVector4i render_pass_area = m_current_render_pass_area;
@@ -5340,7 +5345,7 @@ bool GSDeviceVK::ApplyTFXState(bool already_execed)
 		{
 			if (already_execed)
 			{
-				Console.Error("Failed to reserve vertex uniform space");
+				Console.Error("VK: Failed to reserve vertex uniform space");
 				return false;
 			}
 
@@ -5361,7 +5366,7 @@ bool GSDeviceVK::ApplyTFXState(bool already_execed)
 		{
 			if (already_execed)
 			{
-				Console.Error("Failed to reserve pixel uniform space");
+				Console.Error("VK: Failed to reserve pixel uniform space");
 				return false;
 			}
 
@@ -5585,28 +5590,12 @@ GSTextureVK* GSDeviceVK::SetupPrimitiveTrackingDATE(GSHWDrawConfig& config)
 
 void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 {
-	// Destination Alpha Setup
-	switch (config.destination_alpha)
-	{
-		case GSHWDrawConfig::DestinationAlphaMode::Off: // No setup
-		case GSHWDrawConfig::DestinationAlphaMode::Full: // No setup
-		case GSHWDrawConfig::DestinationAlphaMode::PrimIDTracking: // Setup is done below
-			break;
-		case GSHWDrawConfig::DestinationAlphaMode::StencilOne: // setup is done below
-		{
-			// we only need to do the setup here if we don't have barriers, in which case do full DATE.
-			if (!m_features.texture_barrier)
-			{
-				SetupDATE(config.rt, config.ds, config.datm, config.drawarea);
-				config.destination_alpha = GSHWDrawConfig::DestinationAlphaMode::Stencil;
-			}
-		}
-		break;
 
-		case GSHWDrawConfig::DestinationAlphaMode::Stencil:
-			SetupDATE(config.rt, config.ds, config.datm, config.drawarea);
-			break;
-	}
+	const GSVector2i rtsize(config.rt ? config.rt->GetSize() : config.ds->GetSize());
+	GSTextureVK* draw_rt = static_cast<GSTextureVK*>(config.rt);
+	GSTextureVK* draw_ds = static_cast<GSTextureVK*>(config.ds);
+	GSTextureVK* draw_rt_clone = nullptr;
+	GSTextureVK* hdr_rt = static_cast<GSTextureVK*>(g_gs_device->GetHDRTexture());
 
 	// stream buffer in first, in case we need to exec
 	SetVSConstantBuffer(config.cb_vs);
@@ -5628,68 +5617,112 @@ void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 		SetLineWidth(config.line_expand ? config.cb_ps.ScaleFactor.z : 1.0f);
 
 	// Primitive ID tracking DATE setup.
+	// Needs to be done before
 	GSTextureVK* date_image = nullptr;
 	if (config.destination_alpha == GSHWDrawConfig::DestinationAlphaMode::PrimIDTracking)
 	{
+		// If we have a HDR in progress, we need to use the HDR texture, but we can't check this later as there's a chicken/egg problem with the pipe setup.
+		GSTexture* backup_rt = config.rt;
+
+		if(hdr_rt)
+			config.rt = hdr_rt;
+
 		date_image = SetupPrimitiveTrackingDATE(config);
 		if (!date_image)
 		{
 			Console.WriteLn("Failed to allocate DATE image, aborting draw.");
 			return;
 		}
+
+		config.rt = backup_rt;
 	}
 
 	// figure out the pipeline
 	PipelineSelector& pipe = m_pipeline_selector;
 	UpdateHWPipelineSelector(config, pipe);
 
-	const GSVector2i rtsize(config.rt ? config.rt->GetSize() : config.ds->GetSize());
-	GSTextureVK* draw_rt = static_cast<GSTextureVK*>(config.rt);
-	GSTextureVK* draw_ds = static_cast<GSTextureVK*>(config.ds);
-	GSTextureVK* draw_rt_clone = nullptr;
-	GSTextureVK* hdr_rt = nullptr;
-
-	// Switch to hdr target for colclip rendering
-	if (pipe.ps.hdr)
+	// now blit the hdr texture back to the original target
+	if (hdr_rt)
 	{
-		EndRenderPass();
-
-		hdr_rt = static_cast<GSTextureVK*>(CreateRenderTarget(rtsize.x, rtsize.y, GSTexture::Format::HDRColor, false));
-		if (!hdr_rt)
+		if (config.hdr_mode == GSHWDrawConfig::HDRMode::EarlyResolve)
 		{
-			Console.WriteLn("Failed to allocate HDR render target, aborting draw.");
-			if (date_image)
-				Recycle(date_image);
-			GL_POP();
-			return;
-		}
+			GL_PUSH("Blit HDR back to RT");
 
-		// propagate clear value through if the hdr render is the first
-		if (draw_rt->GetState() == GSTexture::State::Cleared)
+			EndRenderPass();
+			hdr_rt->TransitionToLayout(GSTextureVK::Layout::ShaderReadOnly);
+
+			draw_rt = static_cast<GSTextureVK*>(config.rt);
+			OMSetRenderTargets(draw_rt, draw_ds, GSVector4i::loadh(rtsize), static_cast<FeedbackLoopFlag>(pipe.feedback_loop_flags));
+
+			// if this target was cleared and never drawn to, perform the clear as part of the resolve here.
+			if (draw_rt->GetState() == GSTexture::State::Cleared)
+			{
+				alignas(16) VkClearValue cvs[2];
+				u32 cv_count = 0;
+				GSVector4::store<true>(&cvs[cv_count++].color, draw_rt->GetUNormClearColor());
+				if (draw_ds)
+					cvs[cv_count++].depthStencil = {draw_ds->GetClearDepth(), 1};
+
+				BeginClearRenderPass(GetTFXRenderPass(true, pipe.ds, false, false, pipe.IsRTFeedbackLoop(),
+										 pipe.IsTestingAndSamplingDepth(), VK_ATTACHMENT_LOAD_OP_CLEAR,
+										 pipe.ds ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE),
+					draw_rt->GetRect(), cvs, cv_count);
+				draw_rt->SetState(GSTexture::State::Dirty);
+			}
+			else
+			{
+				BeginRenderPass(GetTFXRenderPass(true, pipe.ds, false, false, pipe.IsRTFeedbackLoop(),
+									pipe.IsTestingAndSamplingDepth(), VK_ATTACHMENT_LOAD_OP_LOAD,
+									pipe.ds ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE),
+					draw_rt->GetRect());
+			}
+
+			const GSVector4 drawareaf = GSVector4(config.hdr_update_area);
+			const GSVector4 sRect(drawareaf / GSVector4(rtsize).xyxy());
+			SetPipeline(m_hdr_finish_pipelines[pipe.ds][pipe.IsRTFeedbackLoop()]);
+			SetUtilityTexture(hdr_rt, m_point_sampler);
+			DrawStretchRect(sRect, drawareaf, rtsize);
+			g_perfmon.Put(GSPerfMon::TextureCopies, 1);
+
+			Recycle(hdr_rt);
+			g_gs_device->SetHDRTexture(nullptr);
+
+			hdr_rt = nullptr;
+		}
+		else
 		{
-			hdr_rt->SetState(GSTexture::State::Cleared);
-			hdr_rt->SetClearColor(draw_rt->GetClearColor());
-
-			// If depth is cleared, we need to commit it, because we're only going to draw to the active part of the FB.
-			if (draw_ds && draw_ds->GetState() == GSTexture::State::Cleared && !config.drawarea.eq(GSVector4i::loadh(rtsize)))
-				draw_ds->CommitClear(m_current_command_buffer);
+			pipe.ps.hdr = 1;
+			draw_rt = hdr_rt;
 		}
-		else if (draw_rt->GetState() == GSTexture::State::Dirty)
-		{
-			GL_PUSH_("HDR Render Target Setup");
-			draw_rt->TransitionToLayout(GSTextureVK::Layout::ShaderReadOnly);
-		}
-
-		// we're not drawing to the RT, so we can use it as a source
-		if (config.require_one_barrier && !m_features.texture_barrier)
-			PSSetShaderResource(2, draw_rt, true);
-
-		draw_rt = hdr_rt;
 	}
-	else if (config.require_one_barrier && !m_features.texture_barrier)
+
+	// Destination Alpha Setup
+	switch (config.destination_alpha)
+	{
+		case GSHWDrawConfig::DestinationAlphaMode::Off: // No setup
+		case GSHWDrawConfig::DestinationAlphaMode::Full: // No setup
+		case GSHWDrawConfig::DestinationAlphaMode::PrimIDTracking: // Setup is done below
+			break;
+		case GSHWDrawConfig::DestinationAlphaMode::StencilOne: // setup is done below
+		{
+			// we only need to do the setup here if we don't have barriers, in which case do full DATE.
+			if (!m_features.texture_barrier)
+			{
+				SetupDATE(draw_rt, config.ds, config.datm, config.drawarea);
+				config.destination_alpha = GSHWDrawConfig::DestinationAlphaMode::Stencil;
+			}
+		}
+		break;
+
+		case GSHWDrawConfig::DestinationAlphaMode::Stencil:
+			SetupDATE(draw_rt, config.ds, config.datm, config.drawarea);
+			break;
+	}
+
+	if (config.require_one_barrier && !m_features.texture_barrier)
 	{
 		// requires a copy of the RT
-		draw_rt_clone = static_cast<GSTextureVK*>(CreateTexture(rtsize.x, rtsize.y, 1, GSTexture::Format::Color, true));
+		draw_rt_clone = static_cast<GSTextureVK*>(CreateTexture(rtsize.x, rtsize.y, 1, hdr_rt ? GSTexture::Format::HDRColor : GSTexture::Format::Color, true));
 		if (draw_rt_clone)
 		{
 			EndRenderPass();
@@ -5702,6 +5735,49 @@ void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 		}
 	}
 
+	// Switch to hdr target for colclip rendering
+	if (pipe.ps.hdr)
+	{
+		if (!hdr_rt)
+		{
+			config.hdr_update_area = config.drawarea;
+			EndRenderPass();
+			hdr_rt = static_cast<GSTextureVK*>(CreateRenderTarget(rtsize.x, rtsize.y, GSTexture::Format::HDRColor, false));
+			if (!hdr_rt)
+			{
+				Console.WriteLn("Failed to allocate HDR render target, aborting draw.");
+
+				if (date_image)
+					Recycle(date_image);
+
+				GL_POP();
+				return;
+			}
+			g_gs_device->SetHDRTexture(static_cast<GSTexture*>(hdr_rt));
+
+			// propagate clear value through if the hdr render is the first
+			if (draw_rt->GetState() == GSTexture::State::Cleared)
+			{
+				hdr_rt->SetState(GSTexture::State::Cleared);
+				hdr_rt->SetClearColor(draw_rt->GetClearColor());
+
+				// If depth is cleared, we need to commit it, because we're only going to draw to the active part of the FB.
+				if (draw_ds && draw_ds->GetState() == GSTexture::State::Cleared && !config.drawarea.eq(GSVector4i::loadh(rtsize)))
+					draw_ds->CommitClear(m_current_command_buffer);
+			}
+			else if (draw_rt->GetState() == GSTexture::State::Dirty)
+			{
+				GL_PUSH_("HDR Render Target Setup");
+				draw_rt->TransitionToLayout(GSTextureVK::Layout::ShaderReadOnly);
+			}
+
+			// we're not drawing to the RT, so we can use it as a source
+			if (config.require_one_barrier && !m_features.texture_barrier)
+				PSSetShaderResource(2, draw_rt, true);
+		}
+		draw_rt = hdr_rt;
+	}
+
 	// clear texture binding when it's bound to RT or DS.
 	if (!config.tex && ((config.rt && static_cast<GSTextureVK*>(config.rt) == m_tfx_textures[0]) ||
 						   (config.ds && static_cast<GSTextureVK*>(config.ds) == m_tfx_textures[0])))
@@ -5710,7 +5786,7 @@ void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 	}
 
 	// render pass restart optimizations
-	if (hdr_rt)
+	if (hdr_rt && (config.hdr_mode == GSHWDrawConfig::HDRMode::ConvertAndResolve || config.hdr_mode == GSHWDrawConfig::HDRMode::ConvertOnly))
 	{
 		// HDR requires blitting.
 		EndRenderPass();
@@ -5770,7 +5846,7 @@ void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 
 		// Only draw to the active area of the HDR target. Except when depth is cleared, we need to use the full
 		// buffer size, otherwise it'll only clear the draw part of the depth buffer.
-		const GSVector4i render_area = (pipe.ps.hdr && ds_op != VK_ATTACHMENT_LOAD_OP_CLEAR) ? config.drawarea :
+		const GSVector4i render_area = (pipe.ps.hdr && (config.hdr_mode == GSHWDrawConfig::HDRMode::ConvertAndResolve) && ds_op != VK_ATTACHMENT_LOAD_OP_CLEAR) ? config.drawarea :
 																							   GSVector4i::loadh(rtsize);
 
 		if (is_clearing_rt)
@@ -5809,17 +5885,19 @@ void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 	}
 
 	// rt -> hdr blit if enabled
-	if (hdr_rt && config.rt->GetState() == GSTexture::State::Dirty)
+	if (hdr_rt && (config.hdr_mode == GSHWDrawConfig::HDRMode::ConvertOnly || config.hdr_mode == GSHWDrawConfig::HDRMode::ConvertAndResolve) && config.rt->GetState() == GSTexture::State::Dirty)
 	{
+		OMSetRenderTargets(draw_rt, draw_ds, GSVector4i::loadh(rtsize), static_cast<FeedbackLoopFlag>(pipe.feedback_loop_flags));
 		SetUtilityTexture(static_cast<GSTextureVK*>(config.rt), m_point_sampler);
 		SetPipeline(m_hdr_setup_pipelines[pipe.ds][pipe.IsRTFeedbackLoop()]);
 
-		const GSVector4 drawareaf = GSVector4(config.drawarea);
+		const GSVector4 drawareaf = GSVector4((config.hdr_mode == GSHWDrawConfig::HDRMode::ConvertOnly) ? GSVector4i::loadh(rtsize) : config.drawarea);
 		const GSVector4 sRect(drawareaf / GSVector4(rtsize).xyxy());
 		DrawStretchRect(sRect, drawareaf, rtsize);
 		g_perfmon.Put(GSPerfMon::TextureCopies, 1);
 
 		GL_POP();
+		OMSetRenderTargets(draw_rt, draw_ds, config.scissor, static_cast<FeedbackLoopFlag>(pipe.feedback_loop_flags));
 	}
 
 	// VB/IB upload, if we did DATE setup and it's not HDR this has already been done
@@ -5876,46 +5954,55 @@ void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 	// now blit the hdr texture back to the original target
 	if (hdr_rt)
 	{
-		GL_PUSH("Blit HDR back to RT");
+		config.hdr_update_area = config.hdr_update_area.runion(config.drawarea);
 
-		EndRenderPass();
-		hdr_rt->TransitionToLayout(GSTextureVK::Layout::ShaderReadOnly);
-
-		draw_rt = static_cast<GSTextureVK*>(config.rt);
-		OMSetRenderTargets(draw_rt, draw_ds, config.scissor, static_cast<FeedbackLoopFlag>(pipe.feedback_loop_flags));
-
-		// if this target was cleared and never drawn to, perform the clear as part of the resolve here.
-		if (draw_rt->GetState() == GSTexture::State::Cleared)
+		if ((config.hdr_mode == GSHWDrawConfig::HDRMode::ResolveOnly || config.hdr_mode == GSHWDrawConfig::HDRMode::ConvertAndResolve))
 		{
-			alignas(16) VkClearValue cvs[2];
-			u32 cv_count = 0;
-			GSVector4::store<true>(&cvs[cv_count++].color, draw_rt->GetUNormClearColor());
-			if (draw_ds)
-				cvs[cv_count++].depthStencil = {draw_ds->GetClearDepth(), 1};
+			GL_PUSH("Blit HDR back to RT");
 
-			BeginClearRenderPass(GetTFXRenderPass(true, pipe.ds, false, false, pipe.IsRTFeedbackLoop(),
-									 pipe.IsTestingAndSamplingDepth(), VK_ATTACHMENT_LOAD_OP_CLEAR,
-									 pipe.ds ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE),
-				draw_rt->GetRect(), cvs, cv_count);
-			draw_rt->SetState(GSTexture::State::Dirty);
+			EndRenderPass();
+
+			hdr_rt->TransitionToLayout(GSTextureVK::Layout::ShaderReadOnly);
+
+			draw_rt = static_cast<GSTextureVK*>(config.rt);
+			OMSetRenderTargets(draw_rt, draw_ds, (config.hdr_mode == GSHWDrawConfig::HDRMode::ResolveOnly) ? GSVector4i::loadh(rtsize) : config.scissor, static_cast<FeedbackLoopFlag>(pipe.feedback_loop_flags));
+
+			// if this target was cleared and never drawn to, perform the clear as part of the resolve here.
+			if (draw_rt->GetState() == GSTexture::State::Cleared)
+			{
+				alignas(16) VkClearValue cvs[2];
+				u32 cv_count = 0;
+				GSVector4::store<true>(&cvs[cv_count++].color, draw_rt->GetUNormClearColor());
+				if (draw_ds)
+					cvs[cv_count++].depthStencil = {draw_ds->GetClearDepth(), 1};
+
+				BeginClearRenderPass(GetTFXRenderPass(true, pipe.ds, false, false, pipe.IsRTFeedbackLoop(),
+										 pipe.IsTestingAndSamplingDepth(), VK_ATTACHMENT_LOAD_OP_CLEAR,
+										 pipe.ds ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE),
+					draw_rt->GetRect(), cvs, cv_count);
+				draw_rt->SetState(GSTexture::State::Dirty);
+			}
+			else
+			{
+				BeginRenderPass(GetTFXRenderPass(true, pipe.ds, false, false, pipe.IsRTFeedbackLoop(),
+									pipe.IsTestingAndSamplingDepth(), VK_ATTACHMENT_LOAD_OP_LOAD,
+									pipe.ds ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE),
+					draw_rt->GetRect());
+			}
+
+			const GSVector4 drawareaf = GSVector4(config.hdr_update_area);
+			const GSVector4 sRect(drawareaf / GSVector4(rtsize).xyxy());
+			SetPipeline(m_hdr_finish_pipelines[pipe.ds][pipe.IsRTFeedbackLoop()]);
+			SetUtilityTexture(hdr_rt, m_point_sampler);
+			DrawStretchRect(sRect, drawareaf, rtsize);
+			g_perfmon.Put(GSPerfMon::TextureCopies, 1);
+
+			Recycle(hdr_rt);
+			g_gs_device->SetHDRTexture(nullptr);
 		}
-		else
-		{
-			BeginRenderPass(GetTFXRenderPass(true, pipe.ds, false, false, pipe.IsRTFeedbackLoop(),
-								pipe.IsTestingAndSamplingDepth(), VK_ATTACHMENT_LOAD_OP_LOAD,
-								pipe.ds ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE),
-				draw_rt->GetRect());
-		}
-
-		const GSVector4 drawareaf = GSVector4(config.drawarea);
-		const GSVector4 sRect(drawareaf / GSVector4(rtsize).xyxy());
-		SetPipeline(m_hdr_finish_pipelines[pipe.ds][pipe.IsRTFeedbackLoop()]);
-		SetUtilityTexture(hdr_rt, m_point_sampler);
-		DrawStretchRect(sRect, drawareaf, rtsize);
-		g_perfmon.Put(GSPerfMon::TextureCopies, 1);
-
-		Recycle(hdr_rt);
 	}
+
+	config.hdr_mode = GSHWDrawConfig::HDRMode::NoModify;
 }
 
 void GSDeviceVK::UpdateHWPipelineSelector(GSHWDrawConfig& config, PipelineSelector& pipe)
@@ -5987,7 +6074,7 @@ void GSDeviceVK::SendHWDraw(const GSHWDrawConfig& config, GSTextureVK* draw_rt,
 
 #ifdef PCSX2_DEVBUILD
 	if ((one_barrier || full_barrier) && !m_pipeline_selector.ps.IsFeedbackLoop()) [[unlikely]]
-		Console.Warning("GS: Possible unnecessary barrier detected.");
+		Console.Warning("VK: Possible unnecessary barrier detected.");
 #endif
 	const VkDependencyFlags barrier_flags = GetColorBufferBarrierFlags();
 	if (full_barrier)

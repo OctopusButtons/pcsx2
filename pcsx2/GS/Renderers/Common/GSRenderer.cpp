@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "ImGui/FullscreenUI.h"
@@ -21,7 +21,7 @@
 #include "common/StringUtil.h"
 #include "common/Timer.h"
 
-#include "fmt/core.h"
+#include "fmt/format.h"
 #include "IconsFontAwesome5.h"
 
 #include <algorithm>
@@ -277,7 +277,7 @@ float GSRenderer::GetModXYOffset()
 
 static float GetCurrentAspectRatioFloat(bool is_progressive)
 {
-	static constexpr std::array<float, static_cast<size_t>(AspectRatioType::MaxCount) + 1> ars = {{4.0f / 3.0f, 4.0f / 3.0f, 4.0f / 3.0f, 16.0f / 9.0f, 3.0f / 2.0f}};
+	static constexpr std::array<float, static_cast<size_t>(AspectRatioType::MaxCount) + 1> ars = {{4.0f / 3.0f, 4.0f / 3.0f, 4.0f / 3.0f, 16.0f / 9.0f, 10.0f / 7.0f, 3.0f / 2.0f}};
 	return ars[static_cast<u32>(GSConfig.AspectRatio) + (3u * (is_progressive && GSConfig.AspectRatio == AspectRatioType::RAuto4_3_3_2))];
 }
 
@@ -300,7 +300,13 @@ static GSVector4 CalculateDrawDstRect(s32 window_width, s32 window_height, const
 		targetAr = 4.0f / 3.0f;
 	}
 	else if (EmuConfig.CurrentAspectRatio == AspectRatioType::R16_9)
+	{
 		targetAr = 16.0f / 9.0f;
+	}
+	else if (EmuConfig.CurrentAspectRatio == AspectRatioType::R10_7)
+	{
+		targetAr = 10.0f / 7.0f;
+	}
 
 	const float crop_adjust = (static_cast<float>(src_rect.width()) / static_cast<float>(src_size.x)) /
 		(static_cast<float>(src_rect.height()) / static_cast<float>(src_size.y));
@@ -540,9 +546,9 @@ void GSRenderer::EndPresentFrame()
 
 void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 {
-	if (GSConfig.DumpGSData && s_n >= GSConfig.SaveN)
+	if (GSConfig.SaveInfo && GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
 	{
-		DumpGSPrivRegs(*m_regs, GetDrawDumpPath("vsync_%05d_f%lld_gs_reg.txt", s_n, g_perfmon.GetFrame()));
+		DumpGSPrivRegs(*m_regs, GetDrawDumpPath("%05d_f%05lld_vsync_gs_reg.txt", s_n, g_perfmon.GetFrame()));
 	}
 
 	const int fb_sprite_blits = g_perfmon.GetDisplayFramebufferSpriteBlits();

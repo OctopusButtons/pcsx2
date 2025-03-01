@@ -1,6 +1,7 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
+#include "BuildVersion.h"
 #include "Config.h"
 #include "Counters.h"
 #include "GS.h"
@@ -24,7 +25,6 @@
 #include "SIO/Pad/PadBase.h"
 #include "USB/USB.h"
 #include "VMManager.h"
-#include "svnrev.h"
 #include "cpuinfo.h"
 
 #include "common/BitUtils.h"
@@ -46,6 +46,8 @@
 #include <span>
 #include <tuple>
 #include <unordered_map>
+
+InputRecordingUI::InputRecordingData g_InputRecordingData;
 
 namespace ImGuiManager
 {
@@ -132,41 +134,45 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 			switch (PerformanceMetrics::GetInternalFPSMethod())
 			{
 				case PerformanceMetrics::InternalFPSMethod::GSPrivilegedRegister:
-					text.append_format("G: {:.2f} [P] | V: {:.2f}", PerformanceMetrics::GetInternalFPS(),
+					text.append_format("FPS: {:.2f} [P]", PerformanceMetrics::GetInternalFPS(),
 						PerformanceMetrics::GetFPS());
 					break;
 
 				case PerformanceMetrics::InternalFPSMethod::DISPFBBlit:
-					text.append_format("G: {:.2f} [B] | V: {:.2f}", PerformanceMetrics::GetInternalFPS(),
+					text.append_format("FPS: {:.2f} [B]", PerformanceMetrics::GetInternalFPS(),
 						PerformanceMetrics::GetFPS());
 					break;
 
 				case PerformanceMetrics::InternalFPSMethod::None:
 				default:
-					text.append_format("V: {:.2f}", PerformanceMetrics::GetFPS());
+					text.append_format("FPS: {:.2f}", PerformanceMetrics::GetFPS());
 					break;
 			}
 			first = false;
 		}
 
+		if (GSConfig.OsdShowVPS)
+		{
+			text.append_format("{}VPS: {:.2f}", first ? "" : " | ", PerformanceMetrics::GetFPS(),
+				PerformanceMetrics::GetFPS());
+			first = false;
+		}
+
 		if (GSConfig.OsdShowSpeed)
 		{
-			text.append_format("{}{}%", first ? "" : " | ", static_cast<u32>(std::round(speed)));
+			text.append_format("{}Speed: {}%", first ? "" : " | ", static_cast<u32>(std::round(speed)));
 
 			const float target_speed = VMManager::GetTargetSpeed();
 			if (target_speed == 0.0f)
-				text.append(" (Max)");
+				text.append(" (T: Max)");
 			else
-				text.append_format(" ({:.0f}%)", target_speed * 100.0f);
+				text.append_format(" (T: {:.0f}%)", target_speed * 100.0f);
+			first = false;
 		}
 
 		if (GSConfig.OsdShowVersion)
 		{
-			if (GSConfig.OsdShowFPS || GSConfig.OsdShowSpeed)
-			{
-				text.append_format(" | ");
-			}
-			text.append_format("PCSX2 {}", GIT_REV);
+			text.append_format("{}PCSX2 {}", first ? "" : " | ", BuildVersion::GitRev);
 		}
 
 		if (!text.empty())
@@ -194,9 +200,10 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 				DRAW_LINE(fixed_font, text.c_str(), IM_COL32(255, 255, 255, 255));
 
 			text.clear();
-			text.append_format("{} QF | {:.2f}ms | {:.2f}ms | {:.2f}ms",
+			text.append_format("{} QF | Min: {:.2f}ms | Avg: {:.2f}ms | Max: {:.2f}ms",
 				MTGS::GetCurrentVsyncQueueSize() - 1, // we subtract one for the current frame
-				PerformanceMetrics::GetMinimumFrameTime(), PerformanceMetrics::GetAverageFrameTime(),
+				PerformanceMetrics::GetMinimumFrameTime(),
+				PerformanceMetrics::GetAverageFrameTime(),
 				PerformanceMetrics::GetMaximumFrameTime());
 			DRAW_LINE(fixed_font, text.c_str(), IM_COL32(255, 255, 255, 255));
 		}
@@ -213,11 +220,17 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 
 		if (GSConfig.OsdShowHardwareInfo)
 		{
+			// CPU
 			text.clear();
 			text.append_format("CPU: {} ({}C/{}T)",
 				cpuinfo_get_package(0)->name,
 				cpuinfo_get_cores_count(),
 				cpuinfo_get_processors_count());
+			DRAW_LINE(fixed_font, text.c_str(), IM_COL32(255, 255, 255, 255));
+
+			// GPU
+			text.clear();
+			text.append_format("GPU: {}", g_gs_device->GetName());
 			DRAW_LINE(fixed_font, text.c_str(), IM_COL32(255, 255, 255, 255));
 		}
 
@@ -235,19 +248,19 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 			FormatProcessorStat(text, PerformanceMetrics::GetGSThreadUsage(), PerformanceMetrics::GetGSThreadAverageTime());
 			DRAW_LINE(fixed_font, text.c_str(), IM_COL32(255, 255, 255, 255));
 
+			if (THREAD_VU1)
+			{
+				text = "VU: ";
+				FormatProcessorStat(text, PerformanceMetrics::GetVUThreadUsage(), PerformanceMetrics::GetVUThreadAverageTime());
+				DRAW_LINE(fixed_font, text.c_str(), IM_COL32(255, 255, 255, 255));
+			}
+
 			const u32 gs_sw_threads = PerformanceMetrics::GetGSSWThreadCount();
 			for (u32 i = 0; i < gs_sw_threads; i++)
 			{
 				text.clear();
 				text.append_format("SW-{}: ", i);
 				FormatProcessorStat(text, PerformanceMetrics::GetGSSWThreadUsage(i), PerformanceMetrics::GetGSSWThreadAverageTime(i));
-				DRAW_LINE(fixed_font, text.c_str(), IM_COL32(255, 255, 255, 255));
-			}
-
-			if (THREAD_VU1)
-			{
-				text = "VU: ";
-				FormatProcessorStat(text, PerformanceMetrics::GetVUThreadUsage(), PerformanceMetrics::GetVUThreadAverageTime());
 				DRAW_LINE(fixed_font, text.c_str(), IM_COL32(255, 255, 255, 255));
 			}
 
@@ -321,7 +334,7 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 				const ImVec2 wpos(ImGui::GetCurrentWindow()->Pos);
 
 				text.clear();
-				text.append_format("{:.1f} ms", max);
+				text.append_format("Max: {:.1f} ms", max);
 				text_size = fixed_font->CalcTextSizeA(fixed_font->FontSize, FLT_MAX, 0.0f, text.c_str(), text.c_str() + text.length());
 				win_dl->AddText(ImVec2((GSConfig.OsdPerformancePos == OsdOverlayPos::TopLeft ? 2.0f * spacing : wpos.x + history_size.x - text_size.x - spacing) + shadow_offset,
 									wpos.y + shadow_offset),
@@ -330,7 +343,7 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 					IM_COL32(255, 255, 255, 255), text.c_str(), text.c_str() + text.length());
 
 				text.clear();
-				text.append_format("{:.1f} ms", min);
+				text.append_format("Min: {:.1f} ms", min);
 				text_size = fixed_font->CalcTextSizeA(fixed_font->FontSize, FLT_MAX, 0.0f, text.c_str(), text.c_str() + text.length());
 				win_dl->AddText(ImVec2((GSConfig.OsdPerformancePos == OsdOverlayPos::TopLeft ? 2.0f * spacing : wpos.x + history_size.x - text_size.x - spacing) + shadow_offset,
 									wpos.y + history_size.y - fixed_font->FontSize + shadow_offset),
@@ -521,10 +534,9 @@ __ri void ImGuiManager::DrawInputsOverlay(float scale, float margin, float spaci
 			num_ports++;
 	}
 
-	float current_x = margin;
-	float current_y = display_size.y - margin - ((static_cast<float>(num_ports) * (font->FontSize + spacing)) - spacing);
-
-	const ImVec4 clip_rect(current_x, current_y, display_size.x - margin, display_size.y - margin);
+	float current_x = ImFloor(margin);
+	float current_y = ImFloor(display_size.y - margin - ((static_cast<float>(num_ports) * (font->FontSize + spacing)) - spacing));
+	const ImVec4 clip_rect(current_x, current_y, display_size.x - margin, display_size.y);
 
 	SmallString text;
 
@@ -670,7 +682,7 @@ __ri void ImGuiManager::DrawInputRecordingOverlay(float& position_y, float scale
 	} while (0)
 
 	// Status Indicators
-	if (g_InputRecording.getControls().isRecording())
+	if (g_InputRecordingData.is_recording)
 	{
 		DRAW_LINE(standard_font, TinyString::from_format(TRANSLATE_FS("ImGuiOverlays", "{} Recording Input"), ICON_PF_CIRCLE).c_str(), IM_COL32(255, 0, 0, 255));
 	}
@@ -680,9 +692,9 @@ __ri void ImGuiManager::DrawInputRecordingOverlay(float& position_y, float scale
 	}
 
 	// Input Recording Metadata
-	DRAW_LINE(fixed_font, TinyString::from_format(TRANSLATE_FS("ImGuiOverlays", "Input Recording Active: {}"), g_InputRecording.getData().getFilename()).c_str(), IM_COL32(117, 255, 241, 255));
-	DRAW_LINE(fixed_font, TinyString::from_format(TRANSLATE_FS("ImGuiOverlays", "Frame: {}/{} ({})"), g_InputRecording.getFrameCounter() + 1, g_InputRecording.getData().getTotalFrames(), g_FrameCount).c_str(), IM_COL32(117, 255, 241, 255));
-	DRAW_LINE(fixed_font, TinyString::from_format(TRANSLATE_FS("ImGuiOverlays", "Undo Count: {}"), g_InputRecording.getData().getUndoCount()).c_str(), IM_COL32(117, 255, 241, 255));
+	DRAW_LINE(fixed_font, g_InputRecordingData.recording_active_message.c_str(), IM_COL32(117, 255, 241, 255));
+	DRAW_LINE(fixed_font, g_InputRecordingData.frame_data_message.c_str(), IM_COL32(117, 255, 241, 255));
+	DRAW_LINE(fixed_font, g_InputRecordingData.undo_count_message.c_str(), IM_COL32(117, 255, 241, 255));
 
 #undef DRAW_LINE
 }
@@ -742,6 +754,7 @@ namespace SaveStateSelectorUI
 	static void RefreshHotkeyLegend();
 	static void Draw();
 	static void ShowSlotOSDMessage();
+	bool IsOpen();
 
 	static constexpr const char* DATE_TIME_FORMAT = TRANSLATE_NOOP("ImGuiOverlays", "Saved at {0:%H:%M} on {0:%a} {0:%Y/%m/%d}.");
 
@@ -750,6 +763,7 @@ namespace SaveStateSelectorUI
 	static std::string s_save_legend;
 	static std::string s_prev_legend;
 	static std::string s_next_legend;
+	static std::string s_close_legend;
 
 	static std::array<ListEntry, VMManager::NUM_SAVE_STATE_SLOTS> s_slots;
 	static std::atomic_int32_t s_current_slot{0};
@@ -790,6 +804,10 @@ void SaveStateSelectorUI::Open(float open_time /* = DEFAULT_OPEN_TIME */)
 	RefreshHotkeyLegend();
 }
 
+bool SaveStateSelectorUI::IsOpen(){
+	return s_open;
+}
+
 void SaveStateSelectorUI::Close()
 {
 	s_open = false;
@@ -797,6 +815,7 @@ void SaveStateSelectorUI::Close()
 	s_save_legend = {};
 	s_prev_legend = {};
 	s_next_legend = {};
+	s_close_legend = {};
 }
 
 void SaveStateSelectorUI::RefreshList(const std::string& serial, u32 crc)
@@ -858,6 +877,8 @@ void SaveStateSelectorUI::RefreshHotkeyLegend()
 		TRANSLATE_STR("ImGuiOverlays", "Select Previous"));
 	s_next_legend = format_legend_entry(Host::GetSmallStringSettingValue("Hotkeys", "NextSaveStateSlot"),
 		TRANSLATE_STR("ImGuiOverlays", "Select Next"));
+	s_close_legend = format_legend_entry(Host::GetSmallStringSettingValue("Hotkeys", "OpenPauseMenu"),
+		TRANSLATE_STR("ImGuiOverlays", "Close Menu"));
 }
 
 void SaveStateSelectorUI::SelectNextSlot(bool open_selector)
@@ -945,9 +966,9 @@ void SaveStateSelectorUI::Draw()
 	const auto& io = ImGui::GetIO();
 	const float scale = ImGuiManager::GetGlobalScale();
 	const float width = (600.0f * scale);
-	const float height = (420.0f * scale);
+	const float height = (430.0f * scale);
 
-	const float padding_and_rounding = 15.0f * scale;
+	const float padding_and_rounding = 10.0f * scale;
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, padding_and_rounding);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding_and_rounding, padding_and_rounding));
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.11f, 0.15f, 0.17f, 0.8f));
@@ -960,7 +981,7 @@ void SaveStateSelectorUI::Draw()
 				ImGuiWindowFlags_NoScrollbar))
 	{
 		// Leave 2 lines for the legend
-		const float legend_margin = ImGui::GetFontSize() * 2.0f + ImGui::GetStyle().ItemSpacing.y * 3.0f;
+		const float legend_margin = ImGui::GetFontSize() * 3.0f + ImGui::GetStyle().ItemSpacing.y * 3.0f;
 		const float padding = 10.0f * scale;
 
 		ImGui::BeginChild("##item_list", ImVec2(0, -legend_margin), false,
@@ -1019,7 +1040,7 @@ void SaveStateSelectorUI::Draw()
 				{
 					ImGui::SetCursorPosY(y_start + padding);
 					ImGui::SetCursorPosX(padding);
-					ImGui::Image(preview_texture->GetNativeHandle(), image_size);
+					ImGui::Image(reinterpret_cast<ImTextureID>(preview_texture->GetNativeHandle()), image_size);
 				}
 
 				ImGui::SetCursorPosY(y_start + padding);
@@ -1054,6 +1075,8 @@ void SaveStateSelectorUI::Draw()
 				ImGui::TextUnformatted(s_save_legend.c_str());
 				ImGui::TableNextColumn();
 				ImGui::TextUnformatted(s_next_legend.c_str());
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(s_close_legend.c_str());
 
 				ImGui::EndTable();
 			}
@@ -1112,9 +1135,6 @@ void SaveStateSelectorUI::ShowSlotOSDMessage()
 
 void ImGuiManager::RenderOverlays()
 {
-	if (VMManager::GetState() != VMState::Running)
-		return;
-
 	const float scale = ImGuiManager::GetGlobalScale();
 	const float margin = std::ceil(10.0f * scale);
 	const float spacing = std::ceil(5.0f * scale);

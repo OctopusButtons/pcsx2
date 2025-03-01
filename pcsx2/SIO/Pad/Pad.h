@@ -1,9 +1,10 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "Config.h"
+#include "Input/InputManager.h"
 #include "SIO/Pad/PadTypes.h"
 
 #include <memory>
@@ -68,6 +69,6 @@ namespace Pad
 	bool Freeze(StateWrapper& sw);
 
 	// Sets the state of the specified macro button.
-	void SetMacroButtonState(u32 pad, u32 index, bool state);
+	void SetMacroButtonState(InputBindingKey& key, u32 pad, u32 index, bool state);
 	void UpdateMacroButtons();
 }; // namespace Pad
