@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 // Huge thanks to PSI for his work reversing the PS2, his documentation on SIO2 pretty much saved
@@ -118,8 +118,8 @@ namespace AutoEject
 	extern void ClearAll();
 } // namespace AutoEject
 
-// ~1 hour of memory card inactivity.
-constexpr u32 NUM_FRAMES_BEFORE_SAVESTATE_DEPENDENCY_WARNING = 60 * 60 * 60;
+// ~2 hours of memory card inactivity.
+constexpr u32 NUM_FRAMES_BEFORE_SAVESTATE_DEPENDENCY_WARNING = 60 * 60 * 60 * 2;
 
 // Set to the current frame count when there is memory card activity.
 // Used to detect the last frame when memory card activity was detected,

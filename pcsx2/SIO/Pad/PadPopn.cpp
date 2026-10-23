@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Pad/PadPopn.h"
@@ -371,7 +371,7 @@ const Pad::ControllerInfo& PadPopn::GetInfo() const
 
 void PadPopn::Set(u32 index, float value)
 {
-	if (index > Inputs::LENGTH)
+	if (index >= Inputs::LENGTH)
 	{
 		return;
 	}
@@ -407,6 +407,10 @@ void PadPopn::SetRawPressureButton(u32 index, const std::tuple<bool, u8> value)
 }
 
 void PadPopn::SetAxisScale(float deadzone, float scale)
+{
+}
+
+void PadPopn::SetDiagonalScaleCorrection(bool enabled)
 {
 }
 
@@ -473,6 +477,16 @@ u32 PadPopn::GetButtons() const
 u8 PadPopn::GetPressure(u32 index) const
 {
 	return 0;
+}
+
+bool PadPopn::IsAnalogLightEnabled() const
+{
+	return this->analogLight;
+}
+
+bool PadPopn::IsAnalogLocked() const
+{
+	return this->analogLocked;
 }
 
 bool PadPopn::Freeze(StateWrapper& sw)

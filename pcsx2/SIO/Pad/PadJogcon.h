@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -43,8 +43,6 @@ private:
 	s16 dial = 0x0000;
 	s16 lastdial = 0x0000;
 
-	bool analogLight = false;
-	bool analogLocked = false;
 	bool commandStage = false;
 	std::array<u8, VIBRATION_MOTORS> vibrationMotors = {};
 	std::array<float, 2> vibrationScale = {1.0f, 1.0f};
@@ -101,6 +99,7 @@ public:
 	void SetRawAnalogs(const std::tuple<u8, u8> left, const std::tuple<u8, u8> right) override;
 	void SetRawPressureButton(u32 index, const std::tuple<bool, u8> value) override;
 	void SetAxisScale(float deadzone, float scale) override;
+	void SetDiagonalScaleCorrection(bool enabled) override;
 	float GetVibrationScale(u32 motor) const override;
 	void SetVibrationScale(u32 motor, float scale) override;
 	float GetPressureModifier() const override;
@@ -114,6 +113,8 @@ public:
 	std::tuple<u8, u8> GetRawRightAnalog() const override;
 	u32 GetButtons() const override;
 	u8 GetPressure(u32 index) const override;
+	bool IsAnalogLightEnabled() const override;
+	bool IsAnalogLocked() const override;
 
 	bool Freeze(StateWrapper& sw) override;
 

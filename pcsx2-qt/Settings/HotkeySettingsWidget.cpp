@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Settings/HotkeySettingsWidget.h"
@@ -53,16 +53,24 @@ void HotkeySettingsWidget::createButtons()
 		auto iter = m_categories.find(category);
 		if (iter == m_categories.end())
 		{
+			// Top line
+			QLabel* top_line = new QLabel(m_container);
+			top_line->setFrameShape(QFrame::HLine);
+			top_line->setFixedHeight(12);
+			m_layout->addWidget(top_line);
+
+			// Category label
 			QLabel* label = new QLabel(category, m_container);
 			QFont label_font(label->font());
 			label_font.setPointSizeF(14.0f);
 			label->setFont(label_font);
 			m_layout->addWidget(label);
 
-			QLabel* line = new QLabel(m_container);
-			line->setFrameShape(QFrame::HLine);
-			line->setFixedHeight(4);
-			m_layout->addWidget(line);
+			// Bottom line
+			QLabel* bottom_line = new QLabel(m_container);
+			bottom_line->setFrameShape(QFrame::HLine);
+			bottom_line->setFixedHeight(12);
+			m_layout->addWidget(bottom_line);
 
 			QGridLayout* layout = new QGridLayout();
 			layout->setContentsMargins(0, 0, 0, 0);
@@ -85,3 +93,5 @@ void HotkeySettingsWidget::createButtons()
 	// Fill remaining space.
 	m_layout->addStretch(1);
 }
+
+#include "moc_HotkeySettingsWidget.cpp"

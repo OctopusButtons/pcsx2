@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <QtWidgets/QMessageBox>
@@ -44,13 +44,12 @@ static const char* s_dns_name[] = {
 
 using PacketReader::IP::IP_Address;
 
-DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* dialog, QWidget* parent)
-	: QWidget(parent)
-	, m_dialog{dialog}
+DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* settings_dialog, QWidget* parent)
+	: SettingsWidget(settings_dialog, parent)
 {
-	SettingsInterface* sif = dialog->getSettingsInterface();
+	SettingsInterface* sif = dialog()->getSettingsInterface();
 
-	m_ui.setupUi(this);
+	setupTab(m_ui);
 
 	//////////////////////////////////////////////////////////////////////////
 	// Eth Enabled
@@ -63,8 +62,8 @@ DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* dialog, QWidget* parent)
 	//////////////////////////////////////////////////////////////////////////
 	// Eth Device Settings
 	//////////////////////////////////////////////////////////////////////////
-	connect(m_ui.ethDevType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DEV9SettingsWidget::onEthDeviceTypeChanged);
-	connect(m_ui.ethDev, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &DEV9SettingsWidget::onEthDeviceChanged);
+	connect(m_ui.ethDevType, &QComboBox::currentIndexChanged, this, &DEV9SettingsWidget::onEthDeviceTypeChanged);
+	connect(m_ui.ethDev, &QComboBox::currentIndexChanged, this, &DEV9SettingsWidget::onEthDeviceChanged);
 	//Comboboxes populated in show event
 
 	//////////////////////////////////////////////////////////////////////////
@@ -75,7 +74,7 @@ DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* dialog, QWidget* parent)
 	connect(m_ui.ethInterceptDHCP, &QCheckBox::checkStateChanged, this, &DEV9SettingsWidget::onEthDHCPInterceptChanged);
 
 	//IP settings
-	const IPValidator* ipValidator = new IPValidator(this, m_dialog->isPerGameSettings());
+	const IPValidator* ipValidator = new IPValidator(this, dialog()->isPerGameSettings());
 
 	// clang-format off
 	m_ui.ethPS2Addr    ->setValidator(ipValidator);
@@ -84,13 +83,13 @@ DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* dialog, QWidget* parent)
 	m_ui.ethDNS1Addr   ->setValidator(ipValidator);
 	m_ui.ethDNS2Addr   ->setValidator(ipValidator);
 
-	if (m_dialog->isPerGameSettings())
+	if (dialog()->isPerGameSettings())
 	{
-		m_ui.ethPS2Addr    ->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "PS2IP",   "").value().c_str()));
-		m_ui.ethNetMask    ->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "Mask",    "").value().c_str()));
-		m_ui.ethGatewayAddr->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "Gateway", "").value().c_str()));
-		m_ui.ethDNS1Addr   ->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "DNS1",    "").value().c_str()));
-		m_ui.ethDNS2Addr   ->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "DNS2",    "").value().c_str()));
+		m_ui.ethPS2Addr    ->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "PS2IP",   "").value().c_str()));
+		m_ui.ethNetMask    ->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "Mask",    "").value().c_str()));
+		m_ui.ethGatewayAddr->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "Gateway", "").value().c_str()));
+		m_ui.ethDNS1Addr   ->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "DNS1",    "").value().c_str()));
+		m_ui.ethDNS2Addr   ->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "DNS2",    "").value().c_str()));
 
 		m_ui.ethPS2Addr    ->setPlaceholderText(QString::fromUtf8(Host::GetBaseStringSettingValue("DEV9/Eth", "PS2IP",   "0.0.0.0").c_str()));
 		m_ui.ethNetMask    ->setPlaceholderText(QString::fromUtf8(Host::GetBaseStringSettingValue("DEV9/Eth", "Mask",    "0.0.0.0").c_str()));
@@ -100,11 +99,11 @@ DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* dialog, QWidget* parent)
 	}
 	else
 	{
-		m_ui.ethPS2Addr    ->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "PS2IP",   "0.0.0.0").value().c_str()));
-		m_ui.ethNetMask    ->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "Mask",    "0.0.0.0").value().c_str()));
-		m_ui.ethGatewayAddr->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "Gateway", "0.0.0.0").value().c_str()));
-		m_ui.ethDNS1Addr   ->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "DNS1",    "0.0.0.0").value().c_str()));
-		m_ui.ethDNS2Addr   ->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Eth", "DNS2",    "0.0.0.0").value().c_str()));
+		m_ui.ethPS2Addr    ->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "PS2IP",   "0.0.0.0").value().c_str()));
+		m_ui.ethNetMask    ->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "Mask",    "0.0.0.0").value().c_str()));
+		m_ui.ethGatewayAddr->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "Gateway", "0.0.0.0").value().c_str()));
+		m_ui.ethDNS1Addr   ->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "DNS1",    "0.0.0.0").value().c_str()));
+		m_ui.ethDNS2Addr   ->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Eth", "DNS2",    "0.0.0.0").value().c_str()));
 	}
 
 	connect(m_ui.ethPS2Addr,     &QLineEdit::editingFinished, this, [&]() { onEthIPChanged(m_ui.ethPS2Addr,     "DEV9/Eth", "PS2IP"  ); });
@@ -126,12 +125,12 @@ DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* dialog, QWidget* parent)
 	SettingWidgetBinder::BindWidgetToEnumSetting(sif, m_ui.ethDNS1Mode, "DEV9/Eth", "ModeDNS1",
 		s_dns_name, Pcsx2Config::DEV9Options::DnsModeNames, Pcsx2Config::DEV9Options::DnsModeNames[static_cast<int>(Pcsx2Config::DEV9Options::DnsMode::Auto)], "DEV9SettingsWidget");
 	onEthDNSModeChanged(m_ui.ethDNS1Mode, m_ui.ethDNS1Mode->currentIndex(), m_ui.ethDNS1Addr, "DEV9/Eth", "ModeDNS1");
-	connect(m_ui.ethDNS1Mode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [&](int index) { onEthDNSModeChanged(m_ui.ethDNS1Mode, index, m_ui.ethDNS1Addr, "DEV9/Eth", "ModeDNS1"); });
+	connect(m_ui.ethDNS1Mode, &QComboBox::currentIndexChanged, this, [&](int index) { onEthDNSModeChanged(m_ui.ethDNS1Mode, index, m_ui.ethDNS1Addr, "DEV9/Eth", "ModeDNS1"); });
 
 	SettingWidgetBinder::BindWidgetToEnumSetting(sif, m_ui.ethDNS2Mode, "DEV9/Eth", "ModeDNS2",
 		s_dns_name, Pcsx2Config::DEV9Options::DnsModeNames, Pcsx2Config::DEV9Options::DnsModeNames[static_cast<int>(Pcsx2Config::DEV9Options::DnsMode::Auto)], "DEV9SettingsWidget");
 	onEthDNSModeChanged(m_ui.ethDNS2Mode, m_ui.ethDNS2Mode->currentIndex(), m_ui.ethDNS2Addr, "DEV9/Eth", "ModeDNS2");
-	connect(m_ui.ethDNS2Mode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [&](int index) { onEthDNSModeChanged(m_ui.ethDNS2Mode, index, m_ui.ethDNS2Addr, "DEV9/Eth", "ModeDNS2"); });
+	connect(m_ui.ethDNS2Mode, &QComboBox::currentIndexChanged, this, [&](int index) { onEthDNSModeChanged(m_ui.ethDNS2Mode, index, m_ui.ethDNS2Addr, "DEV9/Eth", "ModeDNS2"); });
 
 	//////////////////////////////////////////////////////////////////////////
 	// DNS Settings
@@ -140,12 +139,12 @@ DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* dialog, QWidget* parent)
 
 	QStringList headers;
 	headers.push_back(tr("Name"));
-	headers.push_back(tr("Url"));
+	headers.push_back(tr("Hostname"));
 	headers.push_back(tr("Address"));
 	headers.push_back(tr("Enabled"));
 	m_ethHost_model->setHorizontalHeaderLabels(headers);
 
-	connect(m_ethHost_model, QOverload<QStandardItem*>::of(&QStandardItemModel::itemChanged), this, &DEV9SettingsWidget::onEthHostEdit);
+	connect(m_ethHost_model, &QStandardItemModel::itemChanged, this, &DEV9SettingsWidget::onEthHostEdit);
 
 	m_ethHosts_proxy = new QSortFilterProxyModel(m_ui.ethHosts);
 	m_ethHosts_proxy->setSourceModel(m_ethHost_model);
@@ -171,13 +170,13 @@ DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* dialog, QWidget* parent)
 	connect(m_ui.hddEnabled, &QCheckBox::checkStateChanged, this, &DEV9SettingsWidget::onHddEnabledChanged);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.hddEnabled, "DEV9/Hdd", "HddEnable", false);
 
-	if (m_dialog->isPerGameSettings())
+	if (dialog()->isPerGameSettings())
 	{
-		m_ui.hddFile->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Hdd", "HddFile", "").value().c_str()));
+		m_ui.hddFile->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Hdd", "HddFile", "").value().c_str()));
 		m_ui.hddFile->setPlaceholderText(QString::fromUtf8(Host::GetBaseStringSettingValue("DEV9/Hdd", "HddFile", "DEV9hdd.raw")));
 	}
 	else
-		m_ui.hddFile->setText(QString::fromUtf8(m_dialog->getStringValue("DEV9/Hdd", "HddFile", "DEV9hdd.raw").value().c_str()));
+		m_ui.hddFile->setText(QString::fromUtf8(dialog()->getStringValue("DEV9/Hdd", "HddFile", "DEV9hdd.raw").value().c_str()));
 
 	connect(m_ui.hddLBA48, &QCheckBox::checkStateChanged, this, &DEV9SettingsWidget::onHddLBA48Changed);
 
@@ -187,10 +186,47 @@ DEV9SettingsWidget::DEV9SettingsWidget(SettingsWindow* dialog, QWidget* parent)
 	connect(m_ui.hddFile, &QLineEdit::editingFinished, this, &DEV9SettingsWidget::onHddFileEdit);
 	connect(m_ui.hddBrowseFile, &QPushButton::clicked, this, &DEV9SettingsWidget::onHddBrowseFileClicked);
 
-	connect(m_ui.hddSizeSlider, QOverload<int>::of(&QSlider::valueChanged), this, &DEV9SettingsWidget::onHddSizeSlide);
+	connect(m_ui.hddSizeSlider, &QSlider::valueChanged, this, &DEV9SettingsWidget::onHddSizeSlide);
 	SettingWidgetBinder::SettingAccessor<QSpinBox>::connectValueChanged(m_ui.hddSizeSpinBox, [&]() { onHddSizeAccessorSpin(); });
 
 	connect(m_ui.hddCreate, &QPushButton::clicked, this, &DEV9SettingsWidget::onHddCreateClicked);
+
+	dialog()->registerWidgetHelp(m_ui.ethEnabled, tr("Enable Network Adapter"), tr("Unchecked"),
+		tr("Enables the network adapter for online functionality and LAN play."));
+	dialog()->registerWidgetHelp(m_ui.ethDevType, tr("Device Type"), tr("Sockets"),
+		tr("Selects the network emulation backend API (e.g. Sockets, TAP, PCAP Bridged, or PCAP Switched)."));
+	dialog()->registerWidgetHelp(m_ui.ethDev, tr("Adapter / Interface"), tr("Default"),
+		tr("Selects the host network adapter interface to bind emulated network traffic to."));
+	dialog()->registerWidgetHelp(m_ui.ethInterceptDHCP, tr("Intercept DHCP"), tr("Unchecked"),
+		tr("When enabled, DHCP packets will be intercepted and replaced with internal responses."));
+	dialog()->registerWidgetHelp(m_ui.ethPS2Addr, tr("PS2 IP Address"), tr("N/A"),
+		tr("IP address for the PS2 virtual network adapter."));
+	dialog()->registerWidgetHelp(m_ui.ethNetMask, tr("Subnet Mask"), tr("N/A"),
+		tr("Subnet mask for the PS2 virtual network adapter."));
+	dialog()->registerWidgetHelp(m_ui.ethNetMaskAuto, tr("Auto Subnet Mask"), tr("Checked"),
+		tr("Automatically determine the subnet mask based on the IP address class."));
+	dialog()->registerWidgetHelp(m_ui.ethGatewayAddr, tr("Gateway Address"), tr("N/A"),
+		tr("Gateway address for the PS2 virtual network adapter."));
+	dialog()->registerWidgetHelp(m_ui.ethGatewayAuto, tr("Auto Gateway"), tr("Checked"),
+		tr("Automatically determine the gateway address based on the IP address."));
+	dialog()->registerWidgetHelp(m_ui.ethDNS1Mode, tr("DNS1 Mode"), tr("Auto"),
+		tr("Determines how primary DNS requests are handled."));
+	dialog()->registerWidgetHelp(m_ui.ethDNS1Addr, tr("DNS1 Address"), tr("N/A"),
+		tr("Primary DNS server address for the PS2 virtual network adapter."));
+	dialog()->registerWidgetHelp(m_ui.ethDNS2Mode, tr("DNS2 Mode"), tr("Auto"),
+		tr("Determines how secondary DNS requests are handled."));
+	dialog()->registerWidgetHelp(m_ui.ethDNS2Addr, tr("DNS2 Address"), tr("N/A"),
+		tr("Secondary DNS server address for the PS2 virtual network adapter."));
+	dialog()->registerWidgetHelp(m_ui.hddEnabled, tr("Enable HDD"), tr("Unchecked"),
+		tr("Enables the internal Hard Disk Drive for expanded storage."));
+	dialog()->registerWidgetHelp(m_ui.hddFile, tr("HDD Image File"), tr("DEV9hdd.raw"),
+		tr("Path to the raw virtual hard disk image file on disk."));
+	dialog()->registerWidgetHelp(m_ui.hddLBA48, tr("Enable 48-Bit LBA"), tr("Unchecked"),
+		tr("Enables 48-bit Logical Block Addressing support for virtual hard drives larger than 128 GB."));
+	dialog()->registerWidgetHelp(m_ui.hddSizeSlider, tr("HDD Size"), tr("40 GB"),
+		tr("Specifies the capacity in gigabytes when creating a new virtual PS2 hard disk image."));
+	dialog()->registerWidgetHelp(m_ui.hddSizeSpinBox, tr("HDD Size"), tr("40 GB"),
+		tr("Specifies the capacity in gigabytes when creating a new virtual PS2 hard disk image."));
 }
 
 void DEV9SettingsWidget::onEthEnabledChanged(Qt::CheckState state)
@@ -221,7 +257,7 @@ void DEV9SettingsWidget::onEthDeviceTypeChanged(int index)
 	{
 		std::vector<AdapterEntry> list = m_adapter_list[static_cast<u32>(m_api_list[index])];
 
-		const std::string value = m_dialog->getEffectiveStringValue("DEV9/Eth", "EthDevice", "");
+		const std::string value = dialog()->getEffectiveStringValue("DEV9/Eth", "EthDevice", "");
 		for (size_t i = 0; i < list.size(); i++)
 		{
 			m_ui.ethDev->addItem(QString::fromUtf8(list[i].name));
@@ -232,7 +268,7 @@ void DEV9SettingsWidget::onEthDeviceTypeChanged(int index)
 		selectedApi = m_api_list[index];
 	}
 
-	if (m_dialog->isPerGameSettings())
+	if (dialog()->isPerGameSettings())
 	{
 		if (index == 0)
 		{
@@ -277,20 +313,20 @@ void DEV9SettingsWidget::onEthDeviceChanged(int index)
 	{
 		const AdapterEntry& adapter = m_adapter_list[static_cast<u32>(m_api_list[m_ui.ethDevType->currentIndex()])][index];
 
-		m_dialog->setStringSettingValue("DEV9/Eth", "EthApi", Pcsx2Config::DEV9Options::NetApiNames[static_cast<int>(adapter.type)]);
-		m_dialog->setStringSettingValue("DEV9/Eth", "EthDevice", adapter.guid.c_str());
+		dialog()->setStringSettingValue("DEV9/Eth", "EthApi", Pcsx2Config::DEV9Options::NetApiNames[static_cast<int>(adapter.type)]);
+		dialog()->setStringSettingValue("DEV9/Eth", "EthDevice", adapter.guid.c_str());
 	}
-	else if (m_dialog->isPerGameSettings() && m_ui.ethDevType->currentIndex() == 0 && index == 0)
+	else if (dialog()->isPerGameSettings() && m_ui.ethDevType->currentIndex() == 0 && index == 0)
 	{
-		m_dialog->setStringSettingValue("DEV9/Eth", "EthApi", std::nullopt);
-		m_dialog->setStringSettingValue("DEV9/Eth", "EthDevice", std::nullopt);
+		dialog()->setStringSettingValue("DEV9/Eth", "EthApi", std::nullopt);
+		dialog()->setStringSettingValue("DEV9/Eth", "EthDevice", std::nullopt);
 	}
 }
 
 void DEV9SettingsWidget::onEthDHCPInterceptChanged(Qt::CheckState state)
 {
 	const bool enabled = (state == Qt::CheckState::PartiallyChecked ? Host::GetBaseBoolSettingValue("DEV9/Eth", "InterceptDHCP", false) : state) ||
-						 ((m_adapter_options & AdapterOptions::DHCP_ForcedOn) == AdapterOptions::DHCP_ForcedOn);
+	                     ((m_adapter_options & AdapterOptions::DHCP_ForcedOn) == AdapterOptions::DHCP_ForcedOn);
 
 	// clang-format off
 	const bool ipOverride = (m_adapter_options & AdapterOptions::DHCP_OverrideIP)     == AdapterOptions::DHCP_OverrideIP;
@@ -323,8 +359,8 @@ void DEV9SettingsWidget::onEthIPChanged(QLineEdit* sender, const char* section, 
 	//Alow clearing a per-game ip setting
 	if (sender->text().isEmpty())
 	{
-		if (m_dialog->getStringValue(section, key, std::nullopt).has_value())
-			m_dialog->setStringSettingValue(section, key, std::nullopt);
+		if (dialog()->getStringValue(section, key, std::nullopt).has_value())
+			dialog()->setStringSettingValue(section, key, std::nullopt);
 		return;
 	}
 
@@ -337,9 +373,9 @@ void DEV9SettingsWidget::onEthIPChanged(QLineEdit* sender, const char* section, 
 
 	sender->setText(QString::fromUtf8(neatStr.c_str()));
 
-	std::string oldval = m_dialog->getStringValue(section, key, "0.0.0.0").value();
+	std::string oldval = dialog()->getStringValue(section, key, "0.0.0.0").value();
 	if (neatStr != oldval)
-		m_dialog->setStringSettingValue(section, key, neatStr.c_str());
+		dialog()->setStringSettingValue(section, key, neatStr.c_str());
 }
 
 void DEV9SettingsWidget::onEthAutoChanged(QCheckBox* sender, Qt::CheckState state, QLineEdit* input, const char* section, const char* key)
@@ -357,7 +393,7 @@ void DEV9SettingsWidget::onEthDNSModeChanged(QComboBox* sender, int index, QLine
 {
 	if (sender->isEnabled())
 	{
-		if (m_dialog->isPerGameSettings())
+		if (dialog()->isPerGameSettings())
 		{
 			if (index == 0)
 			{
@@ -384,7 +420,7 @@ void DEV9SettingsWidget::onEthDNSModeChanged(QComboBox* sender, int index, QLine
 void DEV9SettingsWidget::onEthHostAdd()
 {
 	HostEntryUi host;
-	host.Desc = "New Host";
+	host.Desc = TRANSLATE_STR("DEV9SettingsWidget", "New Host");
 	host.Enabled = false;
 	AddNewHostConfig(host);
 
@@ -522,7 +558,7 @@ void DEV9SettingsWidget::onEthHostImport()
 
 void DEV9SettingsWidget::onEthHostPerGame()
 {
-	const std::optional<int> hostLengthOpt = m_dialog->getIntValue("DEV9/Eth/Hosts", "Count", std::nullopt);
+	const std::optional<int> hostLengthOpt = dialog()->getIntValue("DEV9/Eth/Hosts", "Count", std::nullopt);
 	if (!hostLengthOpt.has_value())
 	{
 		QMessageBox::StandardButton ret = QMessageBox::question(this, tr("Per Game Host list"),
@@ -532,12 +568,12 @@ void DEV9SettingsWidget::onEthHostPerGame()
 		switch (ret)
 		{
 			case QMessageBox::StandardButton::No:
-				m_dialog->setIntSettingValue("DEV9/Eth/Hosts", "Count", 0);
+				dialog()->setIntSettingValue("DEV9/Eth/Hosts", "Count", 0);
 				break;
 
 			case QMessageBox::StandardButton::Yes:
 			{
-				m_dialog->setIntSettingValue("DEV9/Eth/Hosts", "Count", 0);
+				dialog()->setIntSettingValue("DEV9/Eth/Hosts", "Count", 0);
 				std::vector<HostEntryUi> hosts = ListBaseHostsConfig();
 				for (size_t i = 0; i < hosts.size(); i++)
 					AddNewHostConfig(hosts[i]);
@@ -563,7 +599,7 @@ void DEV9SettingsWidget::onEthHostPerGame()
 			for (int i = hostLength - 1; i >= 0; i--)
 				DeleteHostConfig(i);
 		}
-		m_dialog->setIntSettingValue("DEV9/Eth/Hosts", nullptr, std::nullopt);
+		dialog()->setIntSettingValue("DEV9/Eth/Hosts", nullptr, std::nullopt);
 	}
 
 	RefreshHostList();
@@ -576,16 +612,16 @@ void DEV9SettingsWidget::onEthHostEdit(QStandardItem* item)
 	switch (item->column())
 	{
 		case 0: //Name
-			m_dialog->setStringSettingValue(section.c_str(), "Desc", item->text().toUtf8().constData());
+			dialog()->setStringSettingValue(section.c_str(), "Desc", item->text().toUtf8().constData());
 			break;
 		case 1: //URL
-			m_dialog->setStringSettingValue(section.c_str(), "Url", item->text().toUtf8().constData());
+			dialog()->setStringSettingValue(section.c_str(), "Url", item->text().toUtf8().constData());
 			break;
 		case 2: //IP
-			m_dialog->setStringSettingValue(section.c_str(), "Address", item->text().toUtf8().constData());
+			dialog()->setStringSettingValue(section.c_str(), "Address", item->text().toUtf8().constData());
 			break;
 		case 3: //Enabled
-			m_dialog->setBoolSettingValue(section.c_str(), "Enabled", item->checkState() == Qt::CheckState::Checked);
+			dialog()->setBoolSettingValue(section.c_str(), "Enabled", item->checkState() == Qt::CheckState::Checked);
 			break;
 		default:
 			break;
@@ -634,9 +670,9 @@ void DEV9SettingsWidget::onHddFileEdit()
 	// Also save the hddPath setting
 	std::string hddPath(m_ui.hddFile->text().toStdString());
 	if (hddPath.empty())
-		m_dialog->setStringSettingValue("DEV9/Hdd", "HddFile", std::nullopt);
+		dialog()->setStringSettingValue("DEV9/Hdd", "HddFile", std::nullopt);
 	else
-		m_dialog->setStringSettingValue("DEV9/Hdd", "HddFile", hddPath.c_str());
+		dialog()->setStringSettingValue("DEV9/Hdd", "HddFile", hddPath.c_str());
 
 	UpdateHddSizeUIValues();
 }
@@ -716,7 +752,7 @@ void DEV9SettingsWidget::UpdateHddSizeUIEnabled()
 	std::string hddPath(m_ui.hddFile->text().toStdString());
 
 	bool enableSizeUI;
-	if (m_dialog->isPerGameSettings() && hddPath.empty())
+	if (dialog()->isPerGameSettings() && hddPath.empty())
 		enableSizeUI = false;
 	else
 		enableSizeUI = m_ui.hddFile->isEnabled();
@@ -733,7 +769,7 @@ void DEV9SettingsWidget::UpdateHddSizeUIValues()
 {
 	std::string hddPath(m_ui.hddFile->text().toStdString());
 
-	if (m_dialog->isPerGameSettings() && hddPath.empty())
+	if (dialog()->isPerGameSettings() && hddPath.empty())
 		hddPath = m_ui.hddFile->placeholderText().toStdString();
 
 	if (!Path::IsAbsolute(hddPath))
@@ -770,7 +806,7 @@ void DEV9SettingsWidget::showEvent(QShowEvent* event)
 	{
 		//The API combobox dosn't set the EthApi field, that is performed by the device combobox (in addition to saving the device)
 		//This means that this setting can get out of sync with true value, so revert to that if the ui is closed and opened
-		const std::string value = m_dialog->getStringValue("DEV9/Eth", "EthApi", Pcsx2Config::DEV9Options::NetApiNames[static_cast<int>(Pcsx2Config::DEV9Options::NetApi::Unset)]).value();
+		const std::string value = dialog()->getStringValue("DEV9/Eth", "EthApi", Pcsx2Config::DEV9Options::NetApiNames[static_cast<int>(Pcsx2Config::DEV9Options::NetApi::Unset)]).value();
 
 		//SignalBlocker to prevent saving a value already in the config file
 		QSignalBlocker sb(m_ui.ethDev);
@@ -793,7 +829,7 @@ void DEV9SettingsWidget::showEvent(QShowEvent* event)
  * hidden, maybe because our table is nested within group & tab widgets
  * We could also listern to out show event, but we also need to listern to the tab
  * changed signal, in the event that another tab is selected when our ui is shown
- * 
+ *
  * Instead, lets use an eventFilter to determine exactly when the host table is shown
  * However, the eventFilter is ran before the widgets event handler, meaning the table
  * is still the wrong size, so we also need to check the show event
@@ -864,7 +900,7 @@ void DEV9SettingsWidget::LoadAdapters()
 	m_api_valuelist.push_back(nullptr);
 
 	//We replace the blank entry with one for global settings
-	if (m_dialog->isPerGameSettings())
+	if (dialog()->isPerGameSettings())
 	{
 		const std::string valueAPI = Host::GetBaseStringSettingValue("DEV9/Eth", "EthApi", Pcsx2Config::DEV9Options::NetApiNames[static_cast<int>(Pcsx2Config::DEV9Options::NetApi::Unset)]);
 		for (int i = 0; Pcsx2Config::DEV9Options::NetApiNames[i] != nullptr; i++)
@@ -892,7 +928,7 @@ void DEV9SettingsWidget::LoadAdapters()
 		m_adapter_list[static_cast<u32>(Pcsx2Config::DEV9Options::NetApi::Unset)][0].name = baseAdapter;
 	}
 
-	if (m_dialog->isPerGameSettings())
+	if (dialog()->isPerGameSettings())
 		m_ui.ethDevType->addItem(tr("Use Global Setting [%1]").arg(QString::fromUtf8(Pcsx2Config::DEV9Options::NetApiNames[static_cast<u32>(m_global_api)])));
 	else
 		m_ui.ethDevType->addItem(qApp->translate("DEV9SettingsWidget", m_api_namelist[0]));
@@ -900,7 +936,7 @@ void DEV9SettingsWidget::LoadAdapters()
 	for (int i = 1; m_api_namelist[i] != nullptr; i++)
 		m_ui.ethDevType->addItem(qApp->translate("DEV9SettingsWidget", m_api_namelist[i]));
 
-	const std::string value = m_dialog->getStringValue("DEV9/Eth", "EthApi", Pcsx2Config::DEV9Options::NetApiNames[static_cast<int>(Pcsx2Config::DEV9Options::NetApi::Unset)]).value();
+	const std::string value = dialog()->getStringValue("DEV9/Eth", "EthApi", Pcsx2Config::DEV9Options::NetApiNames[static_cast<int>(Pcsx2Config::DEV9Options::NetApi::Unset)]).value();
 
 	for (int i = 0; m_api_namelist[i] != nullptr; i++)
 	{
@@ -924,7 +960,7 @@ void DEV9SettingsWidget::RefreshHostList()
 
 	std::vector<HostEntryUi> hosts;
 
-	if (m_dialog->isPerGameSettings())
+	if (dialog()->isPerGameSettings())
 	{
 		m_ui.ethHostPerGame->setVisible(true);
 
@@ -988,7 +1024,7 @@ void DEV9SettingsWidget::RefreshHostList()
 
 int DEV9SettingsWidget::CountHostsConfig()
 {
-	return m_dialog->getIntValue("DEV9/Eth/Hosts", "Count", 0).value();
+	return dialog()->getIntValue("DEV9/Eth/Hosts", "Count", 0).value();
 }
 
 std::optional<std::vector<HostEntryUi>> DEV9SettingsWidget::ListHostsConfig()
@@ -996,14 +1032,14 @@ std::optional<std::vector<HostEntryUi>> DEV9SettingsWidget::ListHostsConfig()
 	std::vector<HostEntryUi> hosts;
 
 	std::optional<int> hostLengthOpt;
-	if (m_dialog->isPerGameSettings())
+	if (dialog()->isPerGameSettings())
 	{
-		hostLengthOpt = m_dialog->getIntValue("DEV9/Eth/Hosts", "Count", std::nullopt);
+		hostLengthOpt = dialog()->getIntValue("DEV9/Eth/Hosts", "Count", std::nullopt);
 		if (!hostLengthOpt.has_value())
 			return std::nullopt;
 	}
 	else
-		hostLengthOpt = m_dialog->getIntValue("DEV9/Eth/Hosts", "Count", 0);
+		hostLengthOpt = dialog()->getIntValue("DEV9/Eth/Hosts", "Count", 0);
 
 	const int hostLength = hostLengthOpt.value();
 	for (int i = 0; i < hostLength; i++)
@@ -1011,10 +1047,10 @@ std::optional<std::vector<HostEntryUi>> DEV9SettingsWidget::ListHostsConfig()
 		std::string section = "DEV9/Eth/Hosts/Host" + std::to_string(i);
 
 		HostEntryUi entry;
-		entry.Url = m_dialog->getStringValue(section.c_str(), "Url", "").value();
-		entry.Desc = m_dialog->getStringValue(section.c_str(), "Desc", "").value();
-		entry.Address = m_dialog->getStringValue(section.c_str(), "Address", "").value();
-		entry.Enabled = m_dialog->getBoolValue(section.c_str(), "Enabled", false).value();
+		entry.Url = dialog()->getStringValue(section.c_str(), "Url", "").value();
+		entry.Desc = dialog()->getStringValue(section.c_str(), "Desc", "").value();
+		entry.Address = dialog()->getStringValue(section.c_str(), "Address", "").value();
+		entry.Enabled = dialog()->getBoolValue(section.c_str(), "Enabled", false).value();
 		hosts.push_back(entry);
 	}
 
@@ -1046,12 +1082,12 @@ void DEV9SettingsWidget::AddNewHostConfig(const HostEntryUi& host)
 	const int hostLength = CountHostsConfig();
 	std::string section = "DEV9/Eth/Hosts/Host" + std::to_string(hostLength);
 	// clang-format off
-	m_dialog->setStringSettingValue(section.c_str(), "Url",     host.Url.c_str());
-	m_dialog->setStringSettingValue(section.c_str(), "Desc",    host.Desc.c_str());
-	m_dialog->setStringSettingValue(section.c_str(), "Address", host.Address.c_str());
-	m_dialog->setBoolSettingValue  (section.c_str(), "Enabled", host.Enabled);
+	dialog()->setStringSettingValue(section.c_str(), "Url",     host.Url.c_str());
+	dialog()->setStringSettingValue(section.c_str(), "Desc",    host.Desc.c_str());
+	dialog()->setStringSettingValue(section.c_str(), "Address", host.Address.c_str());
+	dialog()->setBoolSettingValue  (section.c_str(), "Enabled", host.Enabled);
 	// clang-format on
-	m_dialog->setIntSettingValue("DEV9/Eth/Hosts", "Count", hostLength + 1);
+	dialog()->setIntSettingValue("DEV9/Eth/Hosts", "Count", hostLength + 1);
 	RefreshHostList();
 }
 
@@ -1066,10 +1102,10 @@ void DEV9SettingsWidget::DeleteHostConfig(int index)
 		std::string sectionAhead = "DEV9/Eth/Hosts/Host" + std::to_string(i + 1);
 
 		// clang-format off
-		m_dialog->setStringSettingValue(section.c_str(), "Url",     m_dialog->getStringValue(sectionAhead.c_str(), "Url",     "").value().c_str());
-		m_dialog->setStringSettingValue(section.c_str(), "Desc",    m_dialog->getStringValue(sectionAhead.c_str(), "Desc",    "").value().c_str());
-		m_dialog->setStringSettingValue(section.c_str(), "Address", m_dialog->getStringValue(sectionAhead.c_str(), "Address", "0.0.0.0").value().c_str());
-		m_dialog->setBoolSettingValue  (section.c_str(), "Enabled", m_dialog->getBoolValue  (sectionAhead.c_str(), "Enabled", false).value());
+		dialog()->setStringSettingValue(section.c_str(), "Url",     dialog()->getStringValue(sectionAhead.c_str(), "Url",     "").value().c_str());
+		dialog()->setStringSettingValue(section.c_str(), "Desc",    dialog()->getStringValue(sectionAhead.c_str(), "Desc",    "").value().c_str());
+		dialog()->setStringSettingValue(section.c_str(), "Address", dialog()->getStringValue(sectionAhead.c_str(), "Address", "0.0.0.0").value().c_str());
+		dialog()->setBoolSettingValue  (section.c_str(), "Enabled", dialog()->getBoolValue  (sectionAhead.c_str(), "Enabled", false).value());
 		// clang-format on
 	}
 
@@ -1077,10 +1113,12 @@ void DEV9SettingsWidget::DeleteHostConfig(int index)
 	std::string section = "DEV9/Eth/Hosts/Host" + std::to_string(hostLength - 1);
 	//Specifying a value of nullopt will delete the key
 	//if the key is a nullptr, the whole section is deleted
-	m_dialog->setStringSettingValue(section.c_str(), nullptr, std::nullopt);
+	dialog()->setStringSettingValue(section.c_str(), nullptr, std::nullopt);
 
-	m_dialog->setIntSettingValue("DEV9/Eth/Hosts", "Count", hostLength - 1);
+	dialog()->setIntSettingValue("DEV9/Eth/Hosts", "Count", hostLength - 1);
 	RefreshHostList();
 }
 
 DEV9SettingsWidget::~DEV9SettingsWidget() = default;
+
+#include "moc_DEV9SettingsWidget.cpp"

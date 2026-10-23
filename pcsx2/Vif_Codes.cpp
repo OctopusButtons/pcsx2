@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -455,7 +455,7 @@ vifOp(vifCode_MSCALF)
 	{
 		vifXRegs.stat.VGW = false;
 		vifFlush(idx);
-		if (const u32 a = gifUnit.checkPaths(1, 1, 0))
+		if ([[maybe_unused]] const u32 a = gifUnit.checkPaths(1, 1, 0))
 		{
 			GUNIT_WARN("Vif MSCALF: Stall! [%d,%d]", !!(a & 1), !!(a & 2));
 			vif1Regs.stat.VGW = true;

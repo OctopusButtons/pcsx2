@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <QtGui/QDrag>
@@ -27,13 +27,24 @@ static std::string getSlotFilenameKey(u32 slot)
 	return StringUtil::StdStringFromFormat("Slot%u_Filename", slot + 1);
 }
 
-MemoryCardSettingsWidget::MemoryCardSettingsWidget(SettingsWindow* dialog, QWidget* parent)
-	: QWidget(parent)
-	, m_dialog(dialog)
+bool MemoryCardListWidget::MemoryCardListItem::operator<(const QTreeWidgetItem& other) const
 {
-	SettingsInterface* sif = m_dialog->getSettingsInterface();
+	const QTreeWidget* tree = treeWidget();
+	const int column = tree ? tree->sortColumn() : 0;
+	if (column == MemoryCardListColumn::LastModified)
+	{
+		return data(MemoryCardListColumn::LastModified, Qt::UserRole).toLongLong() <
+				other.data(MemoryCardListColumn::LastModified, Qt::UserRole).toLongLong();
+	}
+	return text(column).localeAwareCompare(other.text(column)) < 0;
+}
 
-	m_ui.setupUi(this);
+MemoryCardSettingsWidget::MemoryCardSettingsWidget(SettingsWindow* settings_dialog, QWidget* parent)
+	: SettingsWidget(settings_dialog, parent)
+{
+	SettingsInterface* sif = dialog()->getSettingsInterface();
+
+	setupTab(m_ui);
 
 	// this is a bit lame, but resizeEvent() isn't good enough to autosize our columns,
 	// since the group box hasn't been resized at that point.
@@ -41,7 +52,6 @@ MemoryCardSettingsWidget::MemoryCardSettingsWidget(SettingsWindow* dialog, QWidg
 
 	SettingWidgetBinder::BindWidgetToFolderSetting(sif, m_ui.directory, m_ui.browse, m_ui.open, m_ui.reset, "Folders",
 		"MemoryCards", Path::Combine(EmuFolders::DataRoot, "memcards"));
-	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.automaticManagement, "EmuCore", "McdFolderAutoManage", true);
 
 	setupAdditionalUi();
 
@@ -58,12 +68,12 @@ MemoryCardSettingsWidget::MemoryCardSettingsWidget(SettingsWindow* dialog, QWidg
 	connect(m_ui.convertCard, &QPushButton::clicked, this, &MemoryCardSettingsWidget::convertCard);
 	connect(m_ui.deleteCard, &QPushButton::clicked, this, &MemoryCardSettingsWidget::deleteCard);
 
-	refresh();
+	loadCardListSortState();
+	m_ui.cardList->setSortingEnabled(true);
+	connect(m_ui.cardList->header(), &QHeaderView::sortIndicatorChanged, this,
+		&MemoryCardSettingsWidget::saveCardListSortState);
 
-	dialog->registerWidgetHelp(m_ui.automaticManagement, tr("Automatically manage saves based on running game"),
-		tr("Checked"),
-		tr("(Folder type only / Card size: Auto) Loads only the relevant booted game saves, ignoring others. Avoids "
-		   "running out of space for saves."));
+	refresh();
 }
 
 MemoryCardSettingsWidget::~MemoryCardSettingsWidget() = default;
@@ -98,11 +108,11 @@ void MemoryCardSettingsWidget::setupAdditionalUi()
 
 void MemoryCardSettingsWidget::createSlotWidgets(SlotGroup* port, u32 slot)
 {
-	const bool perGame = m_dialog->isPerGameSettings();
+	const bool perGame = dialog()->isPerGameSettings();
 
 	port->root = new QWidget(m_ui.slotGroupBox);
 
-	SettingsInterface* sif = m_dialog->getSettingsInterface();
+	SettingsInterface* sif = dialog()->getSettingsInterface();
 	port->enable = new QCheckBox(tr("Slot %1").arg(slot + 1), port->root);
 	SettingWidgetBinder::BindWidgetToBoolSetting(
 		sif, port->enable, CONFIG_SECTION, StringUtil::StdStringFromFormat("Slot%u_Enable", slot + 1), true);
@@ -139,7 +149,7 @@ void MemoryCardSettingsWidget::autoSizeUI()
 void MemoryCardSettingsWidget::tryInsertCard(u32 slot, const QString& newCard)
 {
 	// handle where the card is dragged in from explorer or something
-	const int lastSlashPos = std::max(newCard.lastIndexOf('/'), newCard.lastIndexOf('\\'));
+	const qsizetype lastSlashPos = std::max(newCard.lastIndexOf('/'), newCard.lastIndexOf('\\'));
 	const std::string newCardStr(
 		(lastSlashPos >= 0) ? newCard.mid(0, lastSlashPos).toStdString() : newCard.toStdString());
 	if (newCardStr.empty())
@@ -154,14 +164,14 @@ void MemoryCardSettingsWidget::tryInsertCard(u32 slot, const QString& newCard)
 		return;
 	}
 
-	m_dialog->setStringSettingValue(CONFIG_SECTION, getSlotFilenameKey(slot).c_str(), newCardStr.c_str());
+	dialog()->setStringSettingValue(CONFIG_SECTION, getSlotFilenameKey(slot).c_str(), newCardStr.c_str());
 	refresh();
 }
 
 void MemoryCardSettingsWidget::ejectSlot(u32 slot)
 {
-	m_dialog->setStringSettingValue(CONFIG_SECTION, getSlotFilenameKey(slot).c_str(),
-		m_dialog->isPerGameSettings() ? std::nullopt : std::optional<const char*>(""));
+	dialog()->setStringSettingValue(CONFIG_SECTION, getSlotFilenameKey(slot).c_str(),
+		dialog()->isPerGameSettings() ? std::nullopt : std::optional<const char*>(""));
 	refresh();
 }
 
@@ -239,10 +249,12 @@ void MemoryCardSettingsWidget::renameCard()
 	if (newName.isEmpty() || newName == selectedCard)
 		return;
 
-	if (!newName.endsWith(QStringLiteral(".ps2")) || newName.length() <= 4)
+	const qsizetype extensionPos = selectedCard.lastIndexOf('.');
+	const QString extension(extensionPos >= 0 ? selectedCard.mid(extensionPos) : QString());
+	if (!newName.endsWith(extension, Qt::CaseInsensitive) || newName.length() <= extension.length())
 	{
-		QMessageBox::critical(
-			QtUtils::GetRootWidget(this), tr("Rename Memory Card"), tr("New name is invalid, it must end with .ps2"));
+		QMessageBox::critical(QtUtils::GetRootWidget(this), tr("Rename Memory Card"),
+			tr("New name is invalid, it must end with %1").arg(extension));
 		return;
 	}
 
@@ -298,7 +310,10 @@ void MemoryCardSettingsWidget::listContextMenuRequested(const QPoint& pos)
 		menu.addSeparator();
 
 		connect(menu.addAction(tr("Rename")), &QAction::triggered, this, &MemoryCardSettingsWidget::renameCard);
-		connect(menu.addAction(tr("Convert")), &QAction::triggered, this, &MemoryCardSettingsWidget::convertCard);
+
+		QAction* convertAction = menu.addAction(tr("Convert"));
+		convertAction->setEnabled(m_ui.convertCard->isEnabled());
+		connect(convertAction, &QAction::triggered, this, &MemoryCardSettingsWidget::convertCard);
 		connect(menu.addAction(tr("Delete")), &QAction::triggered, this, &MemoryCardSettingsWidget::deleteCard);
 		menu.addSeparator();
 	}
@@ -310,22 +325,22 @@ void MemoryCardSettingsWidget::listContextMenuRequested(const QPoint& pos)
 
 void MemoryCardSettingsWidget::refresh()
 {
-	const bool perGame = m_dialog->isPerGameSettings();
+	const bool perGame = dialog()->isPerGameSettings();
 
 	for (u32 slot = 0; slot < static_cast<u32>(m_slots.size()); slot++)
 	{
 		const bool enabled = m_slots[slot].enable->isChecked();
 		const std::string slotKey = getSlotFilenameKey(slot);
 		const std::optional<std::string> name(
-			m_dialog->getEffectiveStringValue(CONFIG_SECTION, slotKey.c_str(), FileMcd_GetDefaultName(slot).c_str()));
-		const bool inherited = perGame ? !m_dialog->containsSettingValue(CONFIG_SECTION, slotKey.c_str()) : false;
+			dialog()->getEffectiveStringValue(CONFIG_SECTION, slotKey.c_str(), FileMcd_GetDefaultName(slot).c_str()));
+		const bool inherited = perGame ? !dialog()->containsSettingValue(CONFIG_SECTION, slotKey.c_str()) : false;
 
 		m_slots[slot].slot->setCard(name, inherited);
 		m_slots[slot].slot->setEnabled(enabled);
 		m_slots[slot].eject->setEnabled(enabled);
 	}
 
-	m_ui.cardList->refresh(m_dialog);
+	m_ui.cardList->refresh(dialog());
 	updateCardActions();
 }
 
@@ -333,8 +348,8 @@ void MemoryCardSettingsWidget::swapCards()
 {
 	const std::string card1Key = getSlotFilenameKey(0);
 	const std::string card2Key = getSlotFilenameKey(1);
-	std::optional<std::string> card1Name = m_dialog->getStringValue(CONFIG_SECTION, card1Key.c_str(), std::nullopt);
-	std::optional<std::string> card2Name = m_dialog->getStringValue(CONFIG_SECTION, card2Key.c_str(), std::nullopt);
+	std::optional<std::string> card1Name = dialog()->getStringValue(CONFIG_SECTION, card1Key.c_str(), std::nullopt);
+	std::optional<std::string> card2Name = dialog()->getStringValue(CONFIG_SECTION, card2Key.c_str(), std::nullopt);
 	if (!card1Name.has_value() || card1Name->empty() || !card2Name.has_value() || card2Name->empty())
 	{
 		QMessageBox::critical(
@@ -342,9 +357,27 @@ void MemoryCardSettingsWidget::swapCards()
 		return;
 	}
 
-	m_dialog->setStringSettingValue(CONFIG_SECTION, card1Key.c_str(), card2Name->c_str());
-	m_dialog->setStringSettingValue(CONFIG_SECTION, card2Key.c_str(), card1Name->c_str());
+	dialog()->setStringSettingValue(CONFIG_SECTION, card1Key.c_str(), card2Name->c_str());
+	dialog()->setStringSettingValue(CONFIG_SECTION, card2Key.c_str(), card1Name->c_str());
 	refresh();
+}
+
+void MemoryCardSettingsWidget::saveCardListSortState()
+{
+	Host::SetBaseIntSettingValue("MemoryCardListView", "SortColumn",
+		m_ui.cardList->header()->sortIndicatorSection());
+	Host::SetBaseBoolSettingValue("MemoryCardListView", "SortDescending",
+		m_ui.cardList->header()->sortIndicatorOrder() == Qt::DescendingOrder);
+	Host::CommitBaseSettingChanges();
+}
+
+void MemoryCardSettingsWidget::loadCardListSortState()
+{
+	int sort_column = Host::GetBaseIntSettingValue("MemoryCardListView", "SortColumn", 0);
+	if (sort_column < 0 || sort_column > MemoryCardListWidget::MemoryCardListColumn::LastModified)
+		sort_column = MemoryCardListWidget::MemoryCardListColumn::Name;
+	const bool sort_descending = Host::GetBaseBoolSettingValue("MemoryCardListView", "SortDescending", false);
+	m_ui.cardList->sortByColumn(sort_column, sort_descending ? Qt::DescendingOrder : Qt::AscendingOrder);
 }
 
 static QString getSizeSummary(const AvailableMcdInfo& mcd)
@@ -428,12 +461,17 @@ void MemoryCardListWidget::mouseMoveEvent(QMouseEvent* event)
 
 void MemoryCardListWidget::refresh(SettingsWindow* dialog)
 {
+	// We don't need to sort while it's being repopulated.
+	setSortingEnabled(false);
 	clear();
 
 	// we can't use the in use flag here anyway, because the config may not be in line with per game settings.
 	const std::vector<AvailableMcdInfo> mcds(FileMcd_GetAvailableCards(true));
 	if (mcds.empty())
+	{
+		setSortingEnabled(true);
 		return;
+	}
 
 	std::array<std::string, MemoryCardSettingsWidget::MAX_SLOTS> currentCards;
 	for (u32 i = 0; i < static_cast<u32>(currentCards.size()); i++)
@@ -446,7 +484,7 @@ void MemoryCardListWidget::refresh(SettingsWindow* dialog)
 
 	for (const AvailableMcdInfo& mcd : mcds)
 	{
-		QTreeWidgetItem* item = new QTreeWidgetItem();
+		MemoryCardListItem* item = new MemoryCardListItem();
 		const QDateTime mtime(QDateTime::fromSecsSinceEpoch(static_cast<qint64>(mcd.modified_time)));
 		const bool inUse = (std::find(currentCards.begin(), currentCards.end(), mcd.name) != currentCards.end());
 
@@ -459,9 +497,13 @@ void MemoryCardListWidget::refresh(SettingsWindow* dialog)
 
 		// store formatted metadata
 		item->setData(0, Qt::UserRole, mcd.formatted);
+		item->setData(MemoryCardListColumn::LastModified, Qt::UserRole,
+			static_cast<qint64>(mcd.modified_time));
 
 		addTopLevelItem(item);
 	}
+
+	setSortingEnabled(true);
 }
 
 MemoryCardSlotWidget::MemoryCardSlotWidget(QWidget* parent)
@@ -530,3 +572,5 @@ void MemoryCardSlotWidget::setCard(const std::optional<std::string>& name, bool 
 
 	item->setToolTip(item->text());
 }
+
+#include "moc_MemoryCardSettingsWidget.cpp"

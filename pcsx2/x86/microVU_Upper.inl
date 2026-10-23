@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -80,8 +80,7 @@ static void mVUupdateFlags(mV, const xmm& reg, const xmm& regT1in = xEmptyReg, c
 	if (sFLAG.doFlag && CHECK_VUOVERFLOWHACK)
 	{
 		//Calculate overflow
-		xMOVAPS(regT1, regT2);
-		xAND.PS(regT1, ptr128[&sse4_compvals[1][0]]); // Remove sign flags (we don't care)
+		xAND.PS(regT1, regT2, ptr128[&sse4_compvals[1][0]]); // Remove sign flags (we don't care)
 		xCMPNLT.PS(regT1, ptr128[&sse4_compvals[0][0]]); // Compare if T1 == FLT_MAX
 		xMOVMSKPS(gprT2, regT1); // Grab sign bits  for equal results
 		xAND(gprT2, AND_XYZW); // Grab "Is FLT_MAX" bits from the previous calculation
@@ -484,23 +483,18 @@ static void mVU_FTOIx(mP, const float* addr, microOpcode opEnum)
 			return;
 		const xmm& Fs = mVU.regAlloc->allocReg(_Fs_, _Ft_, _X_Y_Z_W, !((_Fs_ == _Ft_) && (_X_Y_Z_W == 0xf)));
 		const xmm& t1 = mVU.regAlloc->allocReg();
-		const xmm& t2 = mVU.regAlloc->allocReg();
 
-		// Note: For help understanding this algorithm see recVUMI_FTOI_Saturate()
-		xMOVAPS(t1, Fs);
+		// cvttps2dq returns 0x8000000 for any unrepresentable values.
+		// We want it to return 0x8000000 for negative and 0x7fffffff for positive.
+		// So for unrepresentable positive values, xor with 0xffffffff to turn 0x80000000 into 0x7fffffff.
 		if (addr)
 			xMUL.PS(Fs, ptr128[addr]);
+		xPCMP.GTD(t1, Fs, ptr128[mVUglob.I32MAXF]);
 		xCVTTPS2DQ(Fs, Fs);
-		xPXOR(t1, ptr128[mVUglob.signbit]);
-		xPSRA.D(t1, 31);
-		xMOVAPS(t2, Fs);
-		xPCMP.EQD(t2, ptr128[mVUglob.signbit]);
-		xAND.PS(t1, t2);
-		xPADD.D(Fs, t1);
+		xPXOR(Fs, t1);
 
 		mVU.regAlloc->clearNeeded(Fs);
 		mVU.regAlloc->clearNeeded(t1);
-		mVU.regAlloc->clearNeeded(t2);
 		mVU.profiler.EmitOp(opEnum);
 	}
 	pass3
@@ -544,36 +538,34 @@ mVUop(mVU_CLIP)
 		const xmm& Fs = mVU.regAlloc->allocReg(_Fs_, 0, 0xf);
 		const xmm& Ft = mVU.regAlloc->allocReg(_Ft_, 0, 0x1);
 		const xmm& t1 = mVU.regAlloc->allocReg();
+		const xmm& t2 = mVU.regAlloc->allocReg();
 
 		mVUunpack_xyzw(Ft, Ft, 0);
 		mVUallocCFLAGa(mVU, gprT1, cFLAG.lastWrite);
 		xSHL(gprT1, 6);
 
-		xAND.PS(Ft, ptr128[mVUglob.absclip]);
-		xMOVAPS(t1, Ft);
-		xPOR(t1, ptr128[mVUglob.signbit]);
+		xPAND    (t1, Fs, ptr128[mVUglob.exponent]);
+		xPXOR    (t2, t2);
+		xPCMP.EQD(t1, t2); // Denormal check
+		xPANDN   (t1, Fs); // If denormal, set to zero, which can't be greater than any nonnegative denormal in Ft
+		xPAND    (Ft, ptr128[mVUglob.absclip]);
 
-		xCMPNLE.PS(t1, Fs); // -w, -z, -y, -x
-		xCMPLT.PS(Ft, Fs);  // +w, +z, +y, +x
+		xPXOR    (Fs, t1, ptr128[mVUglob.signbit]); // Negate
+		xPCMP.GTD(t1, Ft); // +w, +z, +y, +x
+		xPCMP.GTD(Fs, Ft); // -w, -z, -y, -x
 
-		xMOVAPS(Fs, Ft);    // Fs = +w, +z, +y, +x
-		xUNPCK.LPS(Ft, t1); // Ft = -y,+y,-x,+x
-		xUNPCK.HPS(Fs, t1); // Fs = -w,+w,-z,+z
-
-		xMOVMSKPS(gprT2, Fs); // -w,+w,-z,+z
-		xAND(gprT2, 0x3);
-		xSHL(gprT2, 4);
-		xOR(gprT1, gprT2);
-
-		xMOVMSKPS(gprT2, Ft); // -y,+y,-x,+x
-		xAND(gprT2, 0xf);
-		xOR(gprT1, gprT2);
-		xAND(gprT1, 0xffffff);
+		xPBLEND.W (Fs, t1, 0x55); // Squish together
+		xPACK.SSWB(Fs, Fs);       // Convert u16 to u8
+		xPMOVMSKB (gprT2, Fs);    // Get bitmask
+		xAND      (gprT2, 0x3f);  // Mask unused stuff
+		xAND      (gprT1, 0xffffff);
+		xOR       (gprT1, gprT2);
 
 		mVUallocCFLAGb(mVU, gprT1, cFLAG.write);
 		mVU.regAlloc->clearNeeded(Fs);
 		mVU.regAlloc->clearNeeded(Ft);
 		mVU.regAlloc->clearNeeded(t1);
+		mVU.regAlloc->clearNeeded(t2);
 		mVU.profiler.EmitOp(opCLIP);
 	}
 	pass3

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #if ! __has_feature(objc_arc)
@@ -85,62 +85,11 @@ std::optional<float> CocoaTools::GetViewRefreshRate(const WindowInfo& wi)
 	return ret;
 }
 
-// MARK: - Theme Change Handlers
+// MARK: - Help menu
 
-@interface PCSX2KVOHelper : NSObject
-
-- (void)addCallback:(void*)ctx run:(void(*)(void*))callback;
-- (void)removeCallback:(void*)ctx;
-
-@end
-
-@implementation PCSX2KVOHelper
+void CocoaTools::MarkHelpMenu(void* menu)
 {
-	std::vector<std::pair<void*, void(*)(void*)>> _callbacks;
-}
-
-- (void)addCallback:(void*)ctx run:(void(*)(void*))callback
-{
-	_callbacks.push_back(std::make_pair(ctx, callback));
-}
-
-- (void)removeCallback:(void*)ctx
-{
-	auto new_end = std::remove_if(_callbacks.begin(), _callbacks.end(), [ctx](const auto& entry){
-		return ctx == entry.first;
-	});
-	_callbacks.erase(new_end, _callbacks.end());
-}
-
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context
-{
-	for (const auto& callback : _callbacks)
-		callback.second(callback.first);
-}
-
-@end
-
-static PCSX2KVOHelper* s_themeChangeHandler;
-
-void CocoaTools::AddThemeChangeHandler(void* ctx, void(handler)(void* ctx))
-{
-	assert([NSThread isMainThread]);
-	if (!s_themeChangeHandler)
-	{
-		s_themeChangeHandler = [[PCSX2KVOHelper alloc] init];
-		NSApplication* app = [NSApplication sharedApplication];
-		[app addObserver:s_themeChangeHandler
-		      forKeyPath:@"effectiveAppearance"
-		         options:0
-		         context:nil];
-	}
-	[s_themeChangeHandler addCallback:ctx run:handler];
-}
-
-void CocoaTools::RemoveThemeChangeHandler(void* ctx)
-{
-	assert([NSThread isMainThread]);
-	[s_themeChangeHandler removeCallback:ctx];
+	[NSApp setHelpMenu:(__bridge NSMenu*)menu];
 }
 
 // MARK: - Sound playback
@@ -219,5 +168,103 @@ bool CocoaTools::DelayedLaunch(std::string_view file)
 bool CocoaTools::ShowInFinder(std::string_view file)
 {
 	return [[NSWorkspace sharedWorkspace] selectFile:NSStringFromStringView(file)
-	                        inFileViewerRootedAtPath:nil];
+	                        inFileViewerRootedAtPath:@""];
 }
+
+std::optional<std::string> CocoaTools::GetResourcePath()
+{ @autoreleasepool {
+	if (NSBundle* bundle = [NSBundle mainBundle])
+	{
+		NSString* rsrc = [bundle resourcePath];
+		NSString* root = [bundle bundlePath];
+		if ([rsrc isEqualToString:root])
+			rsrc = [rsrc stringByAppendingString:@"/resources"];
+		return [rsrc UTF8String];
+	}
+	return std::nullopt;
+}}
+
+// MARK: - GSRunner
+
+void* CocoaTools::CreateWindow(std::string_view title, u32 width, u32 height)
+{
+	if (!NSApp)
+	{
+		[NSApplication sharedApplication];
+		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+		[NSApp finishLaunching];
+	}
+	constexpr NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+	NSScreen* mainScreen = [NSScreen mainScreen];
+	// Center the window on the screen, because why not
+	NSRect screenFrame = [mainScreen frame];
+	NSRect viewFrame = screenFrame;
+	viewFrame.size = NSMakeSize(width, height);
+	viewFrame.origin.x += (screenFrame.size.width - viewFrame.size.width) / 2;
+	viewFrame.origin.y += (screenFrame.size.height - viewFrame.size.height) / 2;
+	NSWindow* window = [[NSWindow alloc]
+		initWithContentRect:viewFrame
+		          styleMask:style
+		            backing:NSBackingStoreBuffered
+		              defer:NO];
+	[window setTitle:NSStringFromStringView(title)];
+	[window makeKeyAndOrderFront:window];
+	return (__bridge_retained void*)window;
+}
+
+void CocoaTools::DestroyWindow(void* window)
+{
+	(void)(__bridge_transfer NSWindow*)window;
+}
+
+void CocoaTools::GetWindowInfoFromWindow(WindowInfo* wi, void* cf_window)
+{
+	if (cf_window)
+	{
+		NSWindow* window = (__bridge NSWindow*)cf_window;
+		float scale = [window backingScaleFactor];
+		NSView* view = [window contentView];
+		NSRect dims = [view frame];
+		wi->type = WindowInfo::Type::MacOS;
+		wi->window_handle = (__bridge void*)view;
+		wi->surface_width = dims.size.width * scale;
+		wi->surface_height = dims.size.height * scale;
+		wi->surface_scale = scale;
+	}
+	else
+	{
+		wi->type = WindowInfo::Type::Surfaceless;
+	}
+}
+
+static constexpr short STOP_EVENT_LOOP = 0x100;
+
+void CocoaTools::RunCocoaEventLoop(bool forever)
+{
+	NSDate* end = forever ? [NSDate distantFuture] : [NSDate distantPast];
+	[NSApplication sharedApplication]; // Ensure NSApp is initialized
+	while (true)
+	{ @autoreleasepool {
+		NSEvent* ev = [NSApp nextEventMatchingMask:NSEventMaskAny
+		                                 untilDate:end
+		                                    inMode:NSDefaultRunLoopMode
+		                                   dequeue:YES];
+		if (!ev || ([ev type] == NSEventTypeApplicationDefined && [ev subtype] == STOP_EVENT_LOOP))
+			break;
+		[NSApp sendEvent:ev];
+	}}
+}
+
+void CocoaTools::StopMainThreadEventLoop()
+{ @autoreleasepool {
+	NSEvent* ev = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+	                                 location:{}
+	                            modifierFlags:0
+	                                timestamp:0
+	                             windowNumber:0
+	                                  context:nil
+	                                  subtype:STOP_EVENT_LOOP
+	                                    data1:0
+	                                    data2:0];
+	[NSApp postEvent:ev atStart:NO];
+}}

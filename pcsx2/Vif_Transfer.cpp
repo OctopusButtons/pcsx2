@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -93,7 +93,7 @@ _vifT static __fi bool vifTransfer(u32 *data, int size, bool TTE) {
 
 		if(!vifXch.qwc)
 			vifX.inprogress &= ~0x1;
-		else if(vifX.irqoffset.value != 0)
+		else if (vifX.irqoffset.value != 0)
 			vifX.irqoffset.enabled = true;
 	}
 	else

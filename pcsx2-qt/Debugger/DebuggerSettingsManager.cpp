@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "DebuggerSettingsManager.h"
@@ -10,12 +10,12 @@
 
 #include "common/Console.h"
 #include "VMManager.h"
-#include "Models/BreakpointModel.h"
 
 std::mutex DebuggerSettingsManager::writeLock;
-const QString DebuggerSettingsManager::settingsFileVersion = "0.00";
+const QString DebuggerSettingsManager::settingsFileVersion = "0.01";
 
-QJsonObject DebuggerSettingsManager::loadGameSettingsJSON() {
+QJsonObject DebuggerSettingsManager::loadGameSettingsJSON()
+{
 	std::string path = VMManager::GetDebuggerSettingsFilePathForCurrentGame();
 	QFile file(QString::fromStdString(path));
 	if (!file.open(QIODevice::ReadOnly))
@@ -54,7 +54,8 @@ void DebuggerSettingsManager::loadGameSettings(BreakpointModel* bpModel)
 	if (path.empty())
 		return;
 
-	const QJsonValue breakpointsValue = loadGameSettingsJSON().value("Breakpoints");
+	const QJsonObject breakpointsFile = loadGameSettingsJSON();
+	const QJsonValue breakpointsValue = breakpointsFile.value("Breakpoints");
 	const QString valueToLoad = breakpointsValue.toString();
 	if (breakpointsValue.isUndefined() || !breakpointsValue.isArray())
 	{
@@ -62,7 +63,19 @@ void DebuggerSettingsManager::loadGameSettings(BreakpointModel* bpModel)
 		return;
 	}
 
+	// Breakpoint descriptions were added at debugger settings file version 0.01. If loading
+	// saved breakpoints from a previous version (only 0.00 existed prior), the breakpoints will be
+	// missing a description. This code will add in an empty description so that the previous
+	// version, 0.00, is compatible with 0.01.
+	bool isMissingDescription = false;
+	const QJsonValue savedVersionValue = breakpointsFile.value("Version");
+	if (!savedVersionValue.isUndefined())
+	{
+		isMissingDescription = savedVersionValue.toString().toStdString() == "0.00";
+	}
+
 	const QJsonArray breakpointsArray = breakpointsValue.toArray();
+	std::vector<BreakpointMemcheck> breakpoints;
 	for (u32 row = 0; row < breakpointsArray.size(); row++)
 	{
 		const QJsonValue rowValue = breakpointsArray.at(row);
@@ -71,7 +84,13 @@ void DebuggerSettingsManager::loadGameSettings(BreakpointModel* bpModel)
 			Console.WriteLn("Debugger Settings Manager: Failed to load invalid Breakpoint object.");
 			continue;
 		}
-		const QJsonObject rowObject = rowValue.toObject();
+		QJsonObject rowObject = rowValue.toObject();
+
+		// Add empty description for saved breakpoints from debugger settings versions prior to 0.01
+		if (isMissingDescription)
+		{
+			rowObject.insert(QString("DESCRIPTION"), QJsonValue(""));
+		}
 
 		QStringList fields;
 		u32 col = 0;
@@ -80,7 +99,31 @@ void DebuggerSettingsManager::loadGameSettings(BreakpointModel* bpModel)
 			QString headerColKey = bpModel->headerData(col, Qt::Horizontal, Qt::UserRole).toString();
 			fields << rowObject.value(headerColKey).toString();
 		}
-		bpModel->loadBreakpointFromFieldList(fields);
+		std::optional<BreakpointMemcheck> breakpoint = bpModel->getBreakpointFromFieldList(fields);
+		if (breakpoint.has_value())
+		{
+			breakpoints.push_back(breakpoint.value());
+		}
+	}
+
+	if (breakpointsArray.empty())
+	{
+		if (bpModel->rowCount() > 0)
+		{
+			bpModel->removeRows(0, bpModel->rowCount());
+		}
+	}
+	else if (!breakpointsArray.empty() && breakpoints.empty())
+	{
+		Console.WriteLn("Debugger Settings Manager: Parsing failed for every entry, preserving current breakpoints.");
+	}
+	else
+	{
+		if (bpModel->rowCount() > 0)
+		{
+			bpModel->removeRows(0, bpModel->rowCount());
+		}
+		bpModel->insertBreakpointRows(0, breakpoints.size(), breakpoints);
 	}
 }
 
@@ -134,9 +177,9 @@ void DebuggerSettingsManager::saveGameSettings(QAbstractTableModel* abstractTabl
 {
 	const std::string path = VMManager::GetDebuggerSettingsFilePathForCurrentGame();
 	if (path.empty())
-		return; 
+		return;
 
-	const std::lock_guard<std::mutex> lock(writeLock);
+	std::lock_guard<std::mutex> lock(writeLock);
 	QJsonObject loadedSettings = loadGameSettingsJSON();
 	QJsonArray rowsArray;
 	QStringList keys;

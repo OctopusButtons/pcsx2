@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -31,6 +31,7 @@ public:
 	static std::string getDefaultTag();
 	static QString getCurrentVersion();
 	static QString getCurrentVersionDate();
+	static QString getCurrentVersionLocalDate();
 	static void cleanupAfterUpdate();
 
 Q_SIGNALS:

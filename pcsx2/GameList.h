@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -74,6 +74,7 @@ namespace GameList
 	{
 		EntryType type = EntryType::PS2Disc;
 		Region region = Region::Other;
+		bool is_favorite = false;
 
 		std::string path;
 		std::string serial;
@@ -104,10 +105,10 @@ namespace GameList
 		__fi bool IsDisc() const { return (type == EntryType::PS1Disc || type == EntryType::PS2Disc); }
 	};
 
-	const char* EntryTypeToString(EntryType type);
-	const char* EntryTypeToDisplayString(EntryType type);
-	const char* RegionToString(Region region);
-	const char* EntryCompatibilityRatingToString(CompatibilityRating rating);
+	const char* EntryTypeToString(EntryType type, bool translate);
+	const char* RegionToString(Region region, bool translate);
+	const char* RegionToFlagFilename(Region region);
+	const char* EntryCompatibilityRatingToString(CompatibilityRating rating, bool translate);
 
 	/// Fills in boot parameters (iso or elf) based on the game list entry.
 	void FillBootParametersForEntry(VMBootParameters* params, const Entry* entry);
@@ -146,7 +147,7 @@ namespace GameList
 	std::string FormatTimestamp(std::time_t timestamp);
 
 	/// Formats a timespan to something human readable (e.g. 1h2m3s or 1 hour).
-	std::string FormatTimespan(std::time_t timespan, bool long_format = false);
+	std::string FormatTimespan(const std::time_t timespan, const bool long_format = false);
 
 	std::string GetCoverImagePathForEntry(const Entry* entry);
 	std::string GetNewCoverImagePathForEntry(const Entry* entry, const char* new_filename, bool use_serial = false);
@@ -160,5 +161,6 @@ namespace GameList
 	void CheckCustomAttributesForPath(const std::string& path, bool& has_custom_title, bool& has_custom_region);
 	void SaveCustomTitleForPath(const std::string& path, const std::string& custom_title);
 	void SaveCustomRegionForPath(const std::string& path, int custom_region);
+	void SaveFavoriteForPath(const std::string& path, bool favorite);
 	std::string GetCustomTitleForPath(const std::string& path);
 } // namespace GameList

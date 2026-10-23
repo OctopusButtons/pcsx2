@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "ImGui/FullscreenUI.h"
@@ -22,7 +22,7 @@
 #include "common/Timer.h"
 
 #include "fmt/format.h"
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 
 #include <algorithm>
 #include <array>
@@ -87,24 +87,9 @@ bool GSRenderer::Merge(int field)
 	int y_offset[3] = { 0, 0, 0 };
 	const bool feedback_merge = m_regs->EXTWRITE.WRITE == 1;
 
-	PCRTCDisplays.SetVideoMode(GetVideoMode());
-	PCRTCDisplays.EnableDisplays(m_regs->PMODE, m_regs->SMODE2, isReallyInterlaced());
-	PCRTCDisplays.CheckSameSource();
-
-	if (!PCRTCDisplays.PCRTCDisplays[0].enabled && !PCRTCDisplays.PCRTCDisplays[1].enabled)
-	{
-		m_real_size = GSVector2i(0, 0);
-		return false;
-	}
-
 	// Need to do this here, if the user has Anti-Blur enabled, these offsets can get wiped out/changed.
-	const bool game_deinterlacing = (m_regs->DISP[0].DISPFB.DBY != PCRTCDisplays.PCRTCDisplays[0].prevFramebufferReg.DBY) !=
-									(m_regs->DISP[1].DISPFB.DBY != PCRTCDisplays.PCRTCDisplays[1].prevFramebufferReg.DBY);
-
-	PCRTCDisplays.SetRects(0, m_regs->DISP[0].DISPLAY, m_regs->DISP[0].DISPFB);
-	PCRTCDisplays.SetRects(1, m_regs->DISP[1].DISPLAY, m_regs->DISP[1].DISPFB);
-	PCRTCDisplays.CalculateDisplayOffset(m_scanmask_used);
-	PCRTCDisplays.CalculateFramebufferOffset(m_scanmask_used);
+	const bool game_deinterlacing = (PCRTCDisplays.PCRTCDisplays[0].prevFramebufferOffsets.y != PCRTCDisplays.PCRTCDisplays[0].framebufferOffsets.y) !=
+	                                (PCRTCDisplays.PCRTCDisplays[1].prevFramebufferOffsets.y != PCRTCDisplays.PCRTCDisplays[1].framebufferOffsets.y);
 
 	// Only need to check the right/bottom on software renderer, hardware always gets the full texture then cuts a bit out later.
 	if (PCRTCDisplays.FrameRectMatch() && !PCRTCDisplays.FrameWrap() && !feedback_merge)
@@ -116,9 +101,28 @@ bool GSRenderer::Merge(int field)
 	}
 	else
 	{
-		if (PCRTCDisplays.PCRTCDisplays[0].enabled)
+		const bool use_rc1 =
+			PCRTCDisplays.PCRTCDisplays[0].enabled &&                    // RC1 enabled.
+				(!(m_regs->PMODE.MMOD == 1 && m_regs->PMODE.ALP == 0) || // Blend RC1 with non-zero alpha.
+				(m_regs->PMODE.AMOD == 0) ||                             // Use alpha of RC1.
+				(feedback_merge && m_regs->EXTBUF.FBIN == 0));           // Use RC1 for feedback merge.
+
+		// The following two flags determine if RC1 output completely overwrites RC2 output
+		// due to the alpha used for blending and the respective rectangles of the outputs.
+		const bool rc1_contains_rc2 =
+			PCRTCDisplays.PCRTCDisplays[0].displayRect.rcontains(PCRTCDisplays.PCRTCDisplays[1].displayRect);
+
+		const bool rc1_overwrites_rc2 = use_rc1 && rc1_contains_rc2 && m_regs->PMODE.MMOD == 1 && m_regs->PMODE.ALP == 255;
+
+		const bool use_rc2 =
+			PCRTCDisplays.PCRTCDisplays[1].enabled &&                // RC2 enabled.
+				((m_regs->PMODE.SLBG == 0 && !rc1_overwrites_rc2) || // Blending RC2 and not overwritten by RC1.
+				(m_regs->PMODE.AMOD == 1) ||                         // Use alpha of RC2.
+				(feedback_merge && m_regs->EXTBUF.FBIN == 1));       // Use RC2 for feedback merge.
+
+		if (use_rc1)
 			tex[0] = GetOutput(0, tex_scale[0], y_offset[0]);
-		if (PCRTCDisplays.PCRTCDisplays[1].enabled)
+		if (use_rc2)
 			tex[1] = GetOutput(1, tex_scale[1], y_offset[1]);
 		if (feedback_merge)
 			tex[2] = GetFeedbackOutput(tex_scale[2]);
@@ -126,14 +130,30 @@ bool GSRenderer::Merge(int field)
 
 	if (!tex[0] && !tex[1])
 	{
-		m_real_size = GSVector2i(0, 0);
-		return false;
+		// Clear out the MAD buffer as some remnants of the previously shown frame came be left over, causing a flash for one frame.
+		if (GSConfig.InterlaceMode == GSInterlaceMode::Automatic || GSConfig.InterlaceMode >= GSInterlaceMode::AdaptiveTFF)
+		{
+			GSTexture* mad_tex = g_gs_device->GetMAD();
+
+			if (mad_tex)
+			{
+				g_gs_device->ClearRenderTarget(mad_tex, 0);
+				mad_tex = nullptr;
+			}
+		}
+
+		// Both circuits off still outputs BGCOLOR on real hardware.
+		if (PCRTCDisplays.PCRTCDisplays[0].enabled || PCRTCDisplays.PCRTCDisplays[1].enabled)
+		{
+			m_real_size = GSVector2i(0, 0);
+			return false;
+		}
 	}
 
-	s_n++;
+	IncDraw();
 
-	GSVector4 src_gs_read[2];
-	GSVector4 dst[3];
+	GSVector4 src_gs_read[2] = {};
+	GSVector4 dst[3] = {};
 
 	// Use offset for bob deinterlacing always, extra offset added later for FFMD mode.
 	const bool scanmask_frame = m_scanmask_used && abs(PCRTCDisplays.PCRTCDisplays[0].displayRect.y - PCRTCDisplays.PCRTCDisplays[1].displayRect.y) != 1;
@@ -142,19 +162,10 @@ bool GSRenderer::Merge(int field)
 	bool is_bob = GSConfig.InterlaceMode == GSInterlaceMode::BobTFF || GSConfig.InterlaceMode == GSInterlaceMode::BobBFF;
 
 	// FFMD (half frames) requires blend deinterlacing, so automatically use that. Same when SCANMSK is used but not blended in the merge circuit (Alpine Racer 3).
-	if (GSConfig.InterlaceMode != GSInterlaceMode::Automatic || (!m_regs->SMODE2.FFMD && !scanmask_frame))
+	if (GSConfig.InterlaceMode != GSInterlaceMode::Automatic || (!game_deinterlacing && !m_regs->SMODE2.FFMD && !scanmask_frame))
 	{
-		// If the game is offsetting each frame itself and we're using full height buffers, we can offset this with Bob.
-		if (game_deinterlacing && !scanmask_frame && GSConfig.InterlaceMode == GSInterlaceMode::Automatic)
-		{
-			mode = 1; // Bob.
-			is_bob = true;
-		}
-		else
-		{
-			field2 = ((static_cast<int>(GSConfig.InterlaceMode) - 2) & 1);
-			mode = ((static_cast<int>(GSConfig.InterlaceMode) - 2) >> 1);
-		}
+		field2 = ((static_cast<int>(GSConfig.InterlaceMode) - 2) & 1);
+		mode = ((static_cast<int>(GSConfig.InterlaceMode) - 2) >> 1);
 	}
 
 	for (int i = 0; i < 2; i++)
@@ -171,7 +182,7 @@ bool GSRenderer::Merge(int field)
 
 		// src_gs_read is the size which we're really reading from GS memory.
 		src_gs_read[i] = ((GSVector4(curCircuit.framebufferRect) + GSVector4(0, y_offset[i], 0, y_offset[i])) * scale) / GSVector4(tex[i]->GetSize()).xyxy();
-		
+
 		float interlace_offset = 0.0f;
 		if (isReallyInterlaced() && m_regs->SMODE2.FFMD && !is_bob && !GSConfig.DisableInterlaceOffset && GSConfig.InterlaceMode != GSInterlaceMode::Off)
 		{
@@ -181,7 +192,7 @@ bool GSRenderer::Merge(int field)
 		if (m_scanmask_used)
 		{
 			int displayIntOffset = PCRTCDisplays.PCRTCDisplays[i].displayRect.y - PCRTCDisplays.PCRTCDisplays[1 - i].displayRect.y;
-			
+
 			if (displayIntOffset > 0)
 			{
 				displayIntOffset &= 1;
@@ -213,7 +224,7 @@ bool GSRenderer::Merge(int field)
 
 	m_real_size = GSVector2i(fs.x, fs.y);
 
-	if ((tex[0] == tex[1]) && (src_gs_read[0] == src_gs_read[1]).alltrue() && (dst[0] == dst[1]).alltrue() &&
+	if ((tex[0] || tex[1]) && (tex[0] == tex[1]) && (src_gs_read[0] == src_gs_read[1]).alltrue() && (dst[0] == dst[1]).alltrue() &&
 		(PCRTCDisplays.PCRTCDisplays[0].displayRect == PCRTCDisplays.PCRTCDisplays[1].displayRect).alltrue() &&
 		(PCRTCDisplays.PCRTCDisplays[0].framebufferRect == PCRTCDisplays.PCRTCDisplays[1].framebufferRect).alltrue() &&
 		!feedback_merge && !m_regs->PMODE.SLBG)
@@ -225,7 +236,7 @@ bool GSRenderer::Merge(int field)
 	const u32 c = (m_regs->BGCOLOR.U32[0] & 0x00FFFFFFu) | (m_regs->PMODE.ALP << 24);
 	g_gs_device->Merge(tex, src_gs_read, dst, fs, m_regs->PMODE, m_regs->EXTBUF, c);
 
-	if (isReallyInterlaced() && GSConfig.InterlaceMode != GSInterlaceMode::Off)
+	if ((tex[0] || tex[1]) && isReallyInterlaced() && GSConfig.InterlaceMode != GSInterlaceMode::Off)
 	{
 		const float offset = is_bob ? (tex[1] ? tex_scale[1] : tex_scale[0]) : 0.0f;
 
@@ -277,8 +288,25 @@ float GSRenderer::GetModXYOffset()
 
 static float GetCurrentAspectRatioFloat(bool is_progressive)
 {
-	static constexpr std::array<float, static_cast<size_t>(AspectRatioType::MaxCount) + 1> ars = {{4.0f / 3.0f, 4.0f / 3.0f, 4.0f / 3.0f, 16.0f / 9.0f, 10.0f / 7.0f, 3.0f / 2.0f}};
-	return ars[static_cast<u32>(GSConfig.AspectRatio) + (3u * (is_progressive && GSConfig.AspectRatio == AspectRatioType::RAuto4_3_3_2))];
+	switch (GSConfig.AspectRatio)
+	{
+		default:
+		// We don't know the AR of the display here, nor we care about it
+		case AspectRatioType::Stretch:
+		case AspectRatioType::RAuto4_3_3_2:
+			if (EmuConfig.CurrentCustomAspectRatio > 0.f)
+				return EmuConfig.CurrentCustomAspectRatio;
+			else if (is_progressive)
+				return 3.0f / 2.0f;
+			else
+				return 4.0f / 3.0f;
+		case AspectRatioType::R4_3:
+			return 4.0f / 3.0f;
+		case AspectRatioType::R16_9:
+			return 16.0f / 9.0f;
+		case AspectRatioType::R10_7:
+			return 10.0f / 7.0f;
+	}
 }
 
 static GSVector4 CalculateDrawDstRect(s32 window_width, s32 window_height, const GSVector4i& src_rect, const GSVector2i& src_size, GSDisplayAlignment alignment, bool flip_y, bool is_progressive)
@@ -294,6 +322,9 @@ static GSVector4 CalculateDrawDstRect(s32 window_width, s32 window_height, const
 			targetAr = 3.0f / 2.0f;
 		else
 			targetAr = 4.0f / 3.0f;
+		// Fall back on the custom aspect ratio set by patches (e.g. 16:9, 21:9)
+		if (EmuConfig.CurrentCustomAspectRatio > 0.f)
+			targetAr = EmuConfig.CurrentCustomAspectRatio;
 	}
 	else if (EmuConfig.CurrentAspectRatio == AspectRatioType::R4_3)
 	{
@@ -493,6 +524,9 @@ bool GSRenderer::BeginPresentFrame(bool frame_skip)
 {
 	Host::BeginPresentFrame();
 
+	if (GSDumpReplayer::IsReplayingDump())
+		GSDumpReplayer::UpdateGSStats();
+
 	const GSDevice::PresentResult res = g_gs_device->BeginPresent(frame_skip);
 	if (res == GSDevice::PresentResult::FrameSkipped)
 	{
@@ -527,7 +561,7 @@ bool GSRenderer::BeginPresentFrame(bool frame_skip)
 	}
 
 	// First frame after reopening is definitely going to be trash, so skip it.
-	Host::AddIconOSDMessage("GSDeviceLost", ICON_FA_EXCLAMATION_TRIANGLE,
+	Host::AddIconOSDMessage("GSDeviceLost", ICON_FA_TRIANGLE_EXCLAMATION,
 		TRANSLATE_SV("GS", "Host GPU device encountered an error and was recovered. This may have broken rendering."),
 		Host::OSD_CRITICAL_ERROR_DURATION);
 	return false;
@@ -546,9 +580,24 @@ void GSRenderer::EndPresentFrame()
 
 void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 {
-	if (GSConfig.SaveInfo && GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
+	if (GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
 	{
-		DumpGSPrivRegs(*m_regs, GetDrawDumpPath("%05d_f%05lld_vsync_gs_reg.txt", s_n, g_perfmon.GetFrame()));
+		if (GSConfig.SaveInfo)
+		{
+			DumpGSPrivRegs(*m_regs, GetDrawDumpPath("%05lld_f%05lld_vsync_gs_reg.txt", s_n, g_perfmon.GetFrame()));
+
+			DumpDrawInfo(false, false, true);
+		}
+
+		if (GSConfig.SaveTransferImages)
+			DumpTransferImages();
+
+		if (GSConfig.SaveFrameStats)
+		{
+			m_perfmon_frame = g_perfmon - m_perfmon_frame;
+			m_perfmon_frame.Dump(GetDrawDumpPath("%05lld_f%05lld_frame_stats.txt", s_n, g_perfmon.GetFrame()), GSIsHardwareRenderer());
+			m_perfmon_frame = g_perfmon;
+		}
 	}
 
 	const int fb_sprite_blits = g_perfmon.GetDisplayFramebufferSpriteBlits();
@@ -586,6 +635,7 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 
 	m_last_draw_n = s_n;
 	m_last_transfer_n = s_transfer_n;
+	m_background_blurred = false;
 
 	// Skip presentation when running uncapped while vsync is on.
 	if (skip_frame || g_gs_device->ShouldSkipPresentingFrame())
@@ -594,77 +644,89 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 			EndPresentFrame();
 
 		PerformanceMetrics::Update(registers_written, fb_sprite_frame, skip_frame);
-		return;
 	}
-
-	if (!idle_frame)
-		g_gs_device->AgePool();
-
-
-	g_perfmon.EndFrame(idle_frame);
-
-	if ((g_perfmon.GetFrame() & 0x1f) == 0)
-		g_perfmon.Update();
-
-	// Little bit ugly, but we can't do CAS inside the render pass.
-	GSVector4i src_rect;
-	GSVector4 src_uv, draw_rect;
-	GSTexture* current = g_gs_device->GetCurrent();
-	if (current && !blank_frame)
+	else
 	{
-		src_rect = CalculateDrawSrcRect(current, m_real_size);
-		src_uv = GSVector4(src_rect) / GSVector4(current->GetSize()).xyxy();
-		draw_rect = CalculateDrawDstRect(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight(),
-			src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
-			GetVideoMode() == GSVideoMode::SDTV_480P);
-		s_last_draw_rect = draw_rect;
+		if (!idle_frame)
+			g_gs_device->AgePool();
 
-		if (GSConfig.CASMode != GSCASMode::Disabled)
-		{
-			static bool cas_log_once = false;
-			if (g_gs_device->Features().cas_sharpening)
-			{
-				// sharpen only if the IR is higher than the display resolution
-				const bool sharpen_only = (GSConfig.CASMode == GSCASMode::SharpenOnly ||
-										   (current->GetWidth() > g_gs_device->GetWindowWidth() &&
-											   current->GetHeight() > g_gs_device->GetWindowHeight()));
-				g_gs_device->CAS(current, src_rect, src_uv, draw_rect, sharpen_only);
-			}
-			else if (!cas_log_once)
-			{
-				Host::AddIconOSDMessage("CASUnsupported", ICON_FA_EXCLAMATION_TRIANGLE,
-					TRANSLATE_SV("GS",
-						"CAS is not available, your graphics driver does not support the required functionality."),
-					10.0f);
-				cas_log_once = true;
-			}
-		}
-	}
+		g_perfmon.EndFrame(idle_frame);
 
-	if (BeginPresentFrame(false))
-	{
+		if ((g_perfmon.GetFrame() & 0x1f) == 0)
+			g_perfmon.Update();
+
+		// Little bit ugly, but we can't do CAS or background blur inside the render pass.
+		GSVector4i src_rect;
+		GSVector4 src_uv, draw_rect;
+		GSTexture* current = g_gs_device->GetCurrent();
 		if (current && !blank_frame)
 		{
-			const u64 current_time = Common::Timer::GetCurrentValue();
-			const float shader_time = static_cast<float>(Common::Timer::ConvertValueToSeconds(current_time - m_shader_time_start));
+			src_rect = CalculateDrawSrcRect(current, m_real_size);
+			src_uv = GSVector4(src_rect) / GSVector4(current->GetSize()).xyxy();
+			draw_rect = CalculateDrawDstRect(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight(),
+				src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
+				GetVideoMode() == GSVideoMode::SDTV_480P);
+			s_last_draw_rect = draw_rect;
 
-			g_gs_device->PresentRect(current, src_uv, nullptr, draw_rect,
-				s_tv_shader_indices[GSConfig.TVShader], shader_time, GSConfig.LinearPresent != GSPostBilinearMode::Off);
+			const float blur_scale = FullscreenUI::GetBackgroundBlurScale();
+			m_background_blurred = blur_scale > 0.0f && g_gs_device->GaussianBlur(current, src_uv, draw_rect, blur_scale, true);
+			if (!m_background_blurred && GSConfig.CASMode != GSCASMode::Disabled)
+			{
+				static bool cas_log_once = false;
+				if (g_gs_device->Features().cas_sharpening)
+				{
+					// sharpen only if the IR is higher than the display resolution
+					const bool sharpen_only = (GSConfig.CASMode == GSCASMode::SharpenOnly ||
+					                           (current->GetWidth() > g_gs_device->GetWindowWidth() &&
+					                            current->GetHeight() > g_gs_device->GetWindowHeight()));
+					g_gs_device->CAS(current, src_rect, src_uv, draw_rect, sharpen_only);
+				}
+				else if (!cas_log_once)
+				{
+					Host::AddIconOSDMessage("CASUnsupported", ICON_FA_TRIANGLE_EXCLAMATION,
+						TRANSLATE_SV("GS", "CAS is not available, your graphics driver does not support the required functionality."),
+						10.0f);
+					cas_log_once = true;
+				}
+			}
 		}
 
-		EndPresentFrame();
+		if (BeginPresentFrame(false))
+		{
+			if (current && !blank_frame)
+			{
+				const u64 current_time = Common::Timer::GetCurrentValue();
+				const float shader_time = static_cast<float>(Common::Timer::ConvertValueToSeconds(current_time - m_shader_time_start));
 
-		if (GSConfig.OsdShowGPU)
-			PerformanceMetrics::OnGPUPresent(g_gs_device->GetAndResetAccumulatedGPUTime());
+				g_gs_device->PresentRect(current, src_uv, nullptr, draw_rect,
+					s_tv_shader_indices[GSConfig.TVShader], shader_time,
+					BilnIf(m_background_blurred || GSConfig.LinearPresent != GSPostBilinearMode::Off));
+			}
+
+			EndPresentFrame();
+
+			const float gpu_time = g_gs_device->GetAndResetAccumulatedGPUTime();
+			GPUPipelineStatistics gpu_stats = g_gs_device->GetAndResetAccumulatedGPUPipelineStatistics();
+			PerformanceMetrics::OnGPUPresent(gpu_time, gpu_stats.vs_invocations, gpu_stats.ps_invocations);
+		}
+
+		PerformanceMetrics::Update(registers_written, fb_sprite_frame, false);
 	}
-
-	PerformanceMetrics::Update(registers_written, fb_sprite_frame, false);
 
 	// snapshot
 	if (!m_snapshot.empty())
 	{
 		u32 screenshot_width, screenshot_height;
 		std::vector<u32> screenshot_pixels;
+
+		if (GSConfig.LinearPresent == GSPostBilinearMode::BilinearSharp)
+		{
+			const GSTexture* current = g_gs_device->GetCurrent();
+			const GSVector2i internal_res = GetInternalResolution();
+
+			if (current && (current->GetWidth() > internal_res.x || current->GetHeight() > internal_res.y))
+				g_gs_device->Resize(internal_res.x, internal_res.y);
+		}
 
 		if (!m_dump && m_dump_frames > 0)
 		{
@@ -750,6 +812,10 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 		}
 	}
 
+	// metrics
+	if (m_saving_metrics && !PerformanceMetrics::IsSavingMetrics())
+		DumpSavedMetrics();
+
 	// capture
 	if (GSCapture::IsCapturingVideo())
 	{
@@ -762,7 +828,7 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 				GSTexture* temp = g_gs_device->CreateRenderTarget(size.x, size.y, GSTexture::Format::Color, false);
 				if (temp)
 				{
-					g_gs_device->StretchRect(current, temp, GSVector4(0, 0, size.x, size.y));
+					g_gs_device->StretchRect(current, temp, GSVector4(0, 0, size.x, size.y), ShaderConvert::COPY, Biln);
 					GSCapture::DeliverVideoFrame(temp);
 					g_gs_device->Recycle(temp);
 				}
@@ -784,22 +850,21 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 			}
 		}
 	}
+
+	if (GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()) && GSConfig.SaveTransferImages)
+		DumpTransferImages();
 }
 
-void GSRenderer::QueueSnapshot(const std::string& path, u32 gsdump_frames)
+void GSRenderer::QueueSnapshot(const std::string& path, const u32 gsdump_frames)
 {
 	if (!m_snapshot.empty())
 		return;
 
 	// Allows for providing a complete path
 	if (path.size() > 4 && StringUtil::EndsWithNoCase(path, ".png"))
-	{
 		m_snapshot = path.substr(0, path.size() - 4);
-	}
 	else
-	{
 		m_snapshot = GSGetBaseSnapshotFilename();
-	}
 
 	// this is really gross, but wx we get the snapshot request after shift...
 	m_dump_frames = gsdump_frames;
@@ -853,12 +918,42 @@ static std::string GSGetBaseFilename()
 
 std::string GSGetBaseSnapshotFilename()
 {
-	// prepend snapshots directory
+	// If organize by game is enabled, use or create a game-specific folder.
+	if (GSConfig.OrganizeSnapshotsByGame)
+	{
+		const bool prefer_english = Host::GetBaseBoolSettingValue("UI", "PreferEnglishGameList", false);
+		std::string game_name = VMManager::GetTitle(prefer_english);
+		if (!game_name.empty())
+		{
+			Path::SanitizeFileName(&game_name);
+			const std::string game_dir = Path::Combine(EmuFolders::Snapshots, game_name);
+
+			// Make sure the per-game directory exists or that we can successfully create it.
+			if (FileSystem::DirectoryExists(game_dir.c_str()) || FileSystem::CreateDirectoryPath(game_dir.c_str(), false))
+				return Path::Combine(game_dir, GSGetBaseFilename());
+		}
+	}
+
 	return Path::Combine(EmuFolders::Snapshots, GSGetBaseFilename());
 }
 
 std::string GSGetBaseVideoFilename()
 {
+	// If organize by game is enabled, use or create a game-specific folder.
+	if (GSConfig.OrganizeVideoCaptureByGame)
+	{
+		const bool prefer_english = Host::GetBaseBoolSettingValue("UI", "PreferEnglishGameList", false);
+		std::string game_name = VMManager::GetTitle(prefer_english);
+		if (!game_name.empty())
+		{
+			Path::SanitizeFileName(&game_name);
+			const std::string game_dir = Path::Combine(EmuFolders::Videos, game_name);
+
+			// Make sure the per-game directory exists or that we can successfully create it.
+			if (FileSystem::DirectoryExists(game_dir.c_str()) || FileSystem::CreateDirectoryPath(game_dir.c_str(), false))
+				return Path::Combine(game_dir, GSGetBaseFilename());
+		}
+	}
 	// prepend video directory
 	return Path::Combine(EmuFolders::Videos, GSGetBaseFilename());
 }
@@ -869,25 +964,56 @@ void GSRenderer::StopGSDump()
 	m_dump_frames = 0;
 }
 
+void GSRenderer::StartSavingMetrics(u32 seconds)
+{
+	m_saving_metrics = true;
+	PerformanceMetrics::StartSavingMetrics(seconds);
+	Host::AddKeyedOSDMessage("GSMetrics",
+		fmt::format(TRANSLATE_FS("GS", "Started saving performance metrics{}"),
+			(0 < seconds && seconds < UINT32_MAX) ? fmt::format(" ({} seconds)", seconds) : ""),
+		Host::OSD_INFO_DURATION);
+}
+
+void GSRenderer::DumpSavedMetrics()
+{
+	m_saving_metrics = false;
+	PerformanceMetrics::DumpSavedMetrics();
+	Host::AddKeyedOSDMessage("GSMetrics", fmt::format(TRANSLATE_FS("GS", "Logging saved performance metrics")),
+		Host::OSD_INFO_DURATION);
+}
+
+bool GSRenderer::IsSavingMetrics()
+{
+	return m_saving_metrics;
+}
+
 void GSRenderer::PresentCurrentFrame()
 {
+	GSTexture* current = g_gs_device->GetCurrent();
+	GSVector4 src_uv, draw_rect;
+	if (current)
+	{
+		const GSVector4i src_rect(CalculateDrawSrcRect(current, m_real_size));
+		src_uv = GSVector4(src_rect) / GSVector4(current->GetSize()).xyxy();
+		draw_rect = CalculateDrawDstRect(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight(),
+			src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
+			GetVideoMode() == GSVideoMode::SDTV_480P);
+		s_last_draw_rect = draw_rect;
+		const bool refresh_blur = !m_background_blurred;
+		const float blur_scale = FullscreenUI::GetBackgroundBlurScale();
+		m_background_blurred = blur_scale > 0.0f && g_gs_device->GaussianBlur(current, src_uv, draw_rect, blur_scale, refresh_blur);
+	}
+
 	if (BeginPresentFrame(false))
 	{
-		GSTexture* current = g_gs_device->GetCurrent();
 		if (current)
 		{
-			const GSVector4i src_rect(CalculateDrawSrcRect(current, m_real_size));
-			const GSVector4 src_uv(GSVector4(src_rect) / GSVector4(current->GetSize()).xyxy());
-			const GSVector4 draw_rect(CalculateDrawDstRect(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight(),
-				src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
-				GetVideoMode() == GSVideoMode::SDTV_480P));
-			s_last_draw_rect = draw_rect;
-
 			const u64 current_time = Common::Timer::GetCurrentValue();
 			const float shader_time = static_cast<float>(Common::Timer::ConvertValueToSeconds(current_time - m_shader_time_start));
 
 			g_gs_device->PresentRect(current, src_uv, nullptr, draw_rect,
-				s_tv_shader_indices[GSConfig.TVShader], shader_time, GSConfig.LinearPresent != GSPostBilinearMode::Off);
+				s_tv_shader_indices[GSConfig.TVShader], shader_time,
+				BilnIf(m_background_blurred || GSConfig.LinearPresent != GSPostBilinearMode::Off));
 		}
 
 		EndPresentFrame();
@@ -1001,7 +1127,7 @@ bool GSRenderer::SaveSnapshotToMemory(u32 window_width, u32 window_height, bool 
 		if (dl)
 		{
 			const GSVector4i rc(0, 0, draw_width, draw_height);
-			g_gs_device->StretchRect(current, src_uv, rt, GSVector4(rc), ShaderConvert::TRANSPARENCY_FILTER);
+			g_gs_device->StretchRect(current, src_uv, rt, GSVector4(rc), ShaderConvert::TRANSPARENCY_FILTER, Biln);
 			dl->CopyFromTexture(rc, rt, rc, 0);
 			dl->Flush();
 
@@ -1043,7 +1169,7 @@ void DumpGSPrivRegs(const GSPrivRegSet& r, const std::string& filename)
 		if (i == 1 && !r.PMODE.EN2)
 			continue;
 
-		std::fprintf(fp.get(), "DISPFB[%d] BP=%05x BW=%u PSM=%u DBX=%u DBY=%u\n",
+		std::fprintf(fp.get(), "DISPFB%d: { BP: 0x%05x, BW: %u, PSM: %u, DBX: %u, DBY: %u }\n",
 			i,
 			r.DISP[i].DISPFB.Block(),
 			r.DISP[i].DISPFB.FBW,
@@ -1051,7 +1177,7 @@ void DumpGSPrivRegs(const GSPrivRegSet& r, const std::string& filename)
 			r.DISP[i].DISPFB.DBX,
 			r.DISP[i].DISPFB.DBY);
 
-		std::fprintf(fp.get(), "DISPLAY[%d] DX=%u DY=%u DW=%u DH=%u MAGH=%u MAGV=%u\n",
+		std::fprintf(fp.get(), "DISPLAY%d: { DX: %u, DY: %u, DW: %u, DH: %u, MAGH: %u, MAGV: %u }\n",
 			i,
 			r.DISP[i].DISPLAY.DX,
 			r.DISP[i].DISPLAY.DY,
@@ -1061,7 +1187,7 @@ void DumpGSPrivRegs(const GSPrivRegSet& r, const std::string& filename)
 			r.DISP[i].DISPLAY.MAGV);
 	}
 
-	std::fprintf(fp.get(), "PMODE EN1=%u EN2=%u CRTMD=%u MMOD=%u AMOD=%u SLBG=%u ALP=%u\n",
+	std::fprintf(fp.get(), "PMODE: { EN1: %u, EN2: %u, CRTMD: %u, MMOD: %u, AMOD: %u, SLBG: %u, ALP: %u }\n",
 		r.PMODE.EN1,
 		r.PMODE.EN2,
 		r.PMODE.CRTMD,
@@ -1070,7 +1196,8 @@ void DumpGSPrivRegs(const GSPrivRegSet& r, const std::string& filename)
 		r.PMODE.SLBG,
 		r.PMODE.ALP);
 
-	std::fprintf(fp.get(), "SMODE1 CLKSEL=%u CMOD=%u EX=%u GCONT=%u LC=%u NVCK=%u PCK2=%u PEHS=%u PEVS=%u PHS=%u PRST=%u PVS=%u RC=%u SINT=%u SLCK=%u SLCK2=%u SPML=%u T1248=%u VCKSEL=%u VHP=%u XPCK=%u\n",
+	std::fprintf(fp.get(),
+		"SMODE1: { CLKSEL: %u, CMOD: %u, EX: %u, GCONT: %u, LC: %u, NVCK: %u, PCK2: %u, PEHS: %u, PEVS: %u, PHS: %u, PRST: %u, PVS: %u, RC: %u, SINT: %u, SLCK: %u, SLCK2: %u, SPML: %u, T1248: %u, VCKSEL: %u, VHP: %u, XPCK: %u }\n",
 		r.SMODE1.CLKSEL,
 		r.SMODE1.CMOD,
 		r.SMODE1.EX,
@@ -1093,24 +1220,24 @@ void DumpGSPrivRegs(const GSPrivRegSet& r, const std::string& filename)
 		r.SMODE1.VHP,
 		r.SMODE1.XPCK);
 
-	std::fprintf(fp.get(), "SMODE2 INT=%u FFMD=%u DPMS=%u\n",
+	std::fprintf(fp.get(), "SMODE2: { INT: %u, FFMD: %u, DPMS: %u }\n",
 		r.SMODE2.INT,
 		r.SMODE2.FFMD,
 		r.SMODE2.DPMS);
 
-	std::fprintf(fp.get(), "SRFSH %08x_%08x\n",
+	std::fprintf(fp.get(), "SRFSH: { U32_0: 0x%08x, U32_1: 0x%08x }\n",
 		r.SRFSH.U32[0],
 		r.SRFSH.U32[1]);
 
-	std::fprintf(fp.get(), "SYNCH1 %08x_%08x\n",
+	std::fprintf(fp.get(), "SYNCH1: { U32_0: 0x%08x, U32_1: 0x%08x }\n",
 		r.SYNCH1.U32[0],
 		r.SYNCH1.U32[1]);
 
-	std::fprintf(fp.get(), "SYNCH2 %08x_%08x\n",
+	std::fprintf(fp.get(), "SYNCH2: { U32_0: 0x%08x, U32_1: 0x%08x }\n",
 		r.SYNCH2.U32[0],
 		r.SYNCH2.U32[1]);
 
-	std::fprintf(fp.get(), "SYNCV VBP=%u VBPE=%u VDP=%u VFP=%u VFPE=%u VS=%u\n",
+	std::fprintf(fp.get(), "SYNCV: { VBP: %u, VBPE: %u, VDP: %u, VFP: %u, VFPE: %u, VS: %u }\n",
 		r.SYNCV.VBP,
 		r.SYNCV.VBPE,
 		r.SYNCV.VDP,
@@ -1118,21 +1245,21 @@ void DumpGSPrivRegs(const GSPrivRegSet& r, const std::string& filename)
 		r.SYNCV.VFPE,
 		r.SYNCV.VS);
 
-	std::fprintf(fp.get(), "CSR %08x_%08x\n",
+	std::fprintf(fp.get(), "CSR: { U32_0: 0x%08x, U32_1: 0x%08x }\n",
 		r.CSR.U32[0],
 		r.CSR.U32[1]);
 
-	std::fprintf(fp.get(), "BGCOLOR B=%u G=%u R=%u\n",
+	std::fprintf(fp.get(), "BGCOLOR: { B: %u, G: %u, R: %u }\n",
 		r.BGCOLOR.B,
 		r.BGCOLOR.G,
 		r.BGCOLOR.R);
 
-	std::fprintf(fp.get(), "EXTBUF BP=0x%x BW=%u FBIN=%u WFFMD=%u EMODA=%u EMODC=%u WDX=%u WDY=%u\n",
+	std::fprintf(fp.get(), "EXTBUF: { BP: 0x%05x, BW: %u, FBIN: %u, WFFMD: %u, EMODA: %u, EMODC: %u, WDX: %u, WDY: %u }\n",
 		r.EXTBUF.EXBP, r.EXTBUF.EXBW, r.EXTBUF.FBIN, r.EXTBUF.WFFMD,
 		r.EXTBUF.EMODA, r.EXTBUF.EMODC, r.EXTBUF.WDX, r.EXTBUF.WDY);
 
-	std::fprintf(fp.get(), "EXTDATA SX=%u SY=%u SMPH=%u SMPV=%u WW=%u WH=%u\n",
+	std::fprintf(fp.get(), "EXTDATA: { SX: %u, SY: %u, SMPH: %u, SMPV: %u, WW: %u, WH: %u }\n",
 		r.EXTDATA.SX, r.EXTDATA.SY, r.EXTDATA.SMPH, r.EXTDATA.SMPV, r.EXTDATA.WW, r.EXTDATA.WH);
 
-	std::fprintf(fp.get(), "EXTWRITE EN=%u\n", r.EXTWRITE.WRITE);
+	std::fprintf(fp.get(), "EXTWRITE: { EN: %u }\n", r.EXTWRITE.WRITE);
 }

@@ -1,9 +1,11 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "common/Pcsx2Defs.h"
+
+#include <compare>
 
 class SettingsWrapper;
 
@@ -75,6 +77,5 @@ struct AudioStreamParameters
 
 	void LoadSave(SettingsWrapper& wrap, const char* section);
 
-	bool operator==(const AudioStreamParameters& rhs) const;
-	bool operator!=(const AudioStreamParameters& rhs) const;
+	friend auto operator<=>(const AudioStreamParameters& lhs, const AudioStreamParameters& rhs) = default;
 };

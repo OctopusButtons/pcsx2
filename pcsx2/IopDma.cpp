@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "R3000A.h"
@@ -28,25 +28,6 @@ static void psxDmaGeneric(u32 madr, u32 bcr, u32 chcr, u32 spuCore)
 	if ((chcr & 0x1) == 0) DevCon.Status("SPU 2 DMA %c loading from spu2 memory chcr = %x madr = %x bcr = %x\n", dmaNum, chcr, madr, bcr);*/
 
 	const int size = (bcr >> 16) * (bcr & 0xFFFF);
-
-	// Update the spu2 to the current cycle before initiating the DMA
-
-	SPU2async();
-	//Console.Status("cycles sent to SPU2 %x\n", psxRegs.cycle - psxCounters[6].startCycle);
-
-	psxCounters[6].startCycle = psxRegs.cycle;
-	psxCounters[6].deltaCycles = size * 4;
-
-	psxNextDeltaCounter -= (psxRegs.cycle - psxNextStartCounter);
-	psxNextStartCounter = psxRegs.cycle;
-	if (psxCounters[6].deltaCycles < psxNextDeltaCounter)
-		psxNextDeltaCounter = psxCounters[6].deltaCycles;
-
-	if ((psxRegs.iopNextEventCycle - psxNextStartCounter) > (u32)psxNextDeltaCounter)
-	{
-		//DevCon.Warning("SPU2async Setting new counter branch, old %x new %x ((%x - %x = %x) > %x delta)", g_iopNextEventCycle, psxNextStartCounter + psxNextCounter, g_iopNextEventCycle, psxNextStartCounter, (g_iopNextEventCycle - psxNextStartCounter), psxNextCounter);
-		psxRegs.iopNextEventCycle = psxNextStartCounter + psxNextDeltaCounter;
-	}
 
 	switch (chcr)
 	{
@@ -170,18 +151,19 @@ void psxDma6(u32 madr, u32 bcr, u32 chcr)
 
 void psxDma8(u32 madr, u32 bcr, u32 chcr)
 {
-	const int size = (bcr >> 16) * (bcr & 0xFFFF) * 8;
+	const int size = (bcr >> 16) * (bcr & 0xFFFF);
 
 	switch (chcr & 0x01000201)
 	{
 		case 0x01000201: //cpu to dev9 transfer
 			PSXDMA_LOG("*** DMA 8 - DEV9 mem2dev9 *** %lx addr = %lx size = %lx", chcr, madr, bcr);
-			DEV9writeDMA8Mem((u32*)iopPhysMem(madr), size);
+			DEV9writeDMA8Mem((u32*)iopPhysMem(madr), size * 4);
 			break;
 
 		case 0x01000200: //dev9 to cpu transfer
 			PSXDMA_LOG("*** DMA 8 - DEV9 dev9mem *** %lx addr = %lx size = %lx", chcr, madr, bcr);
-			DEV9readDMA8Mem((u32*)iopPhysMem(madr), size);
+			DEV9readDMA8Mem((u32*)iopPhysMem(madr), size * 4);
+			psxCpu->Clear(madr, size);
 			break;
 
 		default:

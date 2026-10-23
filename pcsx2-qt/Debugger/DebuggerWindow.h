@@ -1,41 +1,85 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
-#include "CpuWidget.h"
-
 #include "ui_DebuggerWindow.h"
 
-class DebuggerWindow : public QMainWindow
+#include "DebugTools/DebugInterface.h"
+
+#include <kddockwidgets/MainWindow.h>
+#include <QtCore/QTimer>
+
+class DockManager;
+
+class DebuggerWindow : public KDDockWidgets::QtWidgets::MainWindow
 {
 	Q_OBJECT
 
 public:
 	DebuggerWindow(QWidget* parent);
-	~DebuggerWindow();
 
-public slots:
-	void onVMStateChanged();
+	static DebuggerWindow* getInstance();
+	static DebuggerWindow* createInstance();
+	static void destroyInstance();
+	static bool shouldShowOnStartup();
+
+	DockManager& dockManager();
+
+	void setupDefaultToolBarState();
+	void clearToolBarState();
+	void setupFonts();
+	void updateFontActions();
+	void saveFontSize();
+	int fontSize();
+	void updateTheme();
+
+	void saveWindowGeometry();
+	void restoreWindowGeometry();
+	bool shouldSaveWindowGeometry();
+
+	void updateFromSettings();
+
+	void updateNavigationButtons();
+
+private slots:
+	void onVMStarting();
+	void onVMPaused();
+	void onVMResumed();
+	void onVMStopped();
+
+	void onAnalyse();
+	void onSettings();
+	void onGameSettings();
 	void onRunPause();
 	void onStepInto();
 	void onStepOver();
 	void onStepOut();
-	void onAnalyse();
+
+Q_SIGNALS:
+	// Only emitted if the pause wasn't a temporary one triggered by the
+	// breakpoint code.
+	void onVMActuallyPaused();
 
 protected:
-	void showEvent(QShowEvent* event);
-	void hideEvent(QHideEvent *event);
+	void changeEvent(QEvent* event) override;
+	void closeEvent(QCloseEvent* event) override;
 
 private:
+	DebugInterface* currentCPU();
+
 	Ui::DebuggerWindow m_ui;
-	QAction* m_actionRunPause;
-	QAction* m_actionStepInto;
-	QAction* m_actionStepOver;
-	QAction* m_actionStepOut;
 
-	CpuWidget* m_cpuWidget_r5900;
-	CpuWidget* m_cpuWidget_r3000;
+	DockManager* m_dock_manager;
 
-	void setTabActiveStyle(BreakPointCpu toggledCPU);
+	QByteArray m_default_toolbar_state;
+	QTimer* m_refresh_timer = nullptr;
+
+	int m_font_size;
+	static const constexpr int MINIMUM_FONT_SIZE = 5;
+	static const constexpr int MAXIMUM_FONT_SIZE = 30;
+
+	bool m_is_updating_theme = false;
 };
+
+extern DebuggerWindow* g_debugger_window;

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -95,7 +95,7 @@ extern void TAKES_R128 vtlb_memWrite128(u32 mem, r128 value);
 // These routines only access the various RAM, and will not call handlers
 // which has the potential to change hardware state.
 template <typename DataType>
-extern DataType vtlb_ramRead(u32 mem);
+extern DataType vtlb_ramRead(u32 mem, bool* result = nullptr);
 template <typename DataType>
 extern bool vtlb_ramWrite(u32 mem, const DataType& value);
 
@@ -174,7 +174,7 @@ namespace vtlb_private
 		/// Assumes the entry is a handler, and gets the raw handler ID
 		u8 assumeHandlerGetID() const { return value; }
 		/// Assumes the entry is a handler, and gets the physical address
-		u32 assumeHandlerGetPAddr(u32 vaddr) const { return (value + vaddr - assumeHandlerGetID()) & ~POINTER_SIGN_BIT; }
+		u32 assumeHandlerGetPAddr(u32 vaddr) const { return static_cast<u32>((value + vaddr - assumeHandlerGetID()) & ~POINTER_SIGN_BIT); }
 		/// Assumes the entry is a handler, returning it as a void*
 		void *assumeHandlerGetRaw(int index, bool write) const;
 		/// Assumes the entry is a handler, returning it

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Input/XInputSource.h"
@@ -14,13 +14,21 @@
 
 #include <cmath>
 
-static const char* s_axis_names[XInputSource::NUM_AXES] = {
+static const char* s_axis_setting_names[XInputSource::NUM_AXES] = {
 	"LeftX", // AXIS_LEFTX
 	"LeftY", // AXIS_LEFTY
 	"RightX", // AXIS_RIGHTX
 	"RightY", // AXIS_RIGHTY
 	"LeftTrigger", // AXIS_TRIGGERLEFT
 	"RightTrigger", // AXIS_TRIGGERRIGHT
+};
+static const char* s_axis_names[XInputSource::NUM_AXES] = {
+	"Left X", // AXIS_LEFTX
+	"Left Y", // AXIS_LEFTY
+	"Right X", // AXIS_RIGHTX
+	"Right Y", // AXIS_RIGHTY
+	"Left Trigger", // AXIS_TRIGGERLEFT
+	"Right Trigger", // AXIS_TRIGGERRIGHT
 };
 static constexpr const char* s_axis_icons[][2] = {
 	{ICON_PF_LEFT_ANALOG_LEFT, ICON_PF_LEFT_ANALOG_RIGHT}, // AXIS_LEFTX
@@ -39,7 +47,7 @@ static const GenericInputBinding s_xinput_generic_binding_axis_mapping[][2] = {
 	{GenericInputBinding::Unknown, GenericInputBinding::R2}, // AXIS_TRIGGERRIGHT
 };
 
-static const char* s_button_names[XInputSource::NUM_BUTTONS] = {
+static const char* s_button_setting_names[XInputSource::NUM_BUTTONS] = {
 	"DPadUp", // XINPUT_GAMEPAD_DPAD_UP
 	"DPadDown", // XINPUT_GAMEPAD_DPAD_DOWN
 	"DPadLeft", // XINPUT_GAMEPAD_DPAD_LEFT
@@ -56,6 +64,24 @@ static const char* s_button_names[XInputSource::NUM_BUTTONS] = {
 	"Y", // XINPUT_GAMEPAD_Y
 	"Guide", // XINPUT_GAMEPAD_GUIDE
 };
+static const char* s_button_names[XInputSource::NUM_BUTTONS] = {
+	"D-Pad Up", // XINPUT_GAMEPAD_DPAD_UP
+	"D-Pad Down", // XINPUT_GAMEPAD_DPAD_DOWN
+	"D-Pad Left", // XINPUT_GAMEPAD_DPAD_LEFT
+	"D-Pad Right", // XINPUT_GAMEPAD_DPAD_RIGHT
+	"Start", // XINPUT_GAMEPAD_START
+	"Back", // XINPUT_GAMEPAD_BACK
+	"Left Stick", // XINPUT_GAMEPAD_LEFT_THUMB
+	"Right Stick", // XINPUT_GAMEPAD_RIGHT_THUMB
+	"Left Shoulder", // XINPUT_GAMEPAD_LEFT_SHOULDER
+	"Right Shoulder", // XINPUT_GAMEPAD_RIGHT_SHOULDER
+	"A", // XINPUT_GAMEPAD_A
+	"B", // XINPUT_GAMEPAD_B
+	"X", // XINPUT_GAMEPAD_X
+	"Y", // XINPUT_GAMEPAD_Y
+	"Xbox", // XINPUT_GAMEPAD_GUIDE
+};
+
 static const u16 s_button_masks[XInputSource::NUM_BUTTONS] = {
 	XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_START,
 	XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_THUMB, XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_RIGHT_SHOULDER,
@@ -133,6 +159,8 @@ bool XInputSource::Initialize(SettingsInterface& si, std::unique_lock<std::mutex
 	if (!m_xinput_get_state || !m_xinput_set_state || !m_xinput_get_capabilities)
 	{
 		Console.Error("Failed to get XInput function pointers.");
+		FreeLibrary(m_xinput_module);
+		m_xinput_module = nullptr;
 		return false;
 	}
 
@@ -194,6 +222,11 @@ void XInputSource::Shutdown()
 	m_xinput_set_state = nullptr;
 	m_xinput_get_capabilities = nullptr;
 	m_xinput_get_extended = nullptr;
+}
+
+bool XInputSource::IsInitialized()
+{
+	return m_xinput_module;
 }
 
 void XInputSource::PollEvents()
@@ -287,9 +320,9 @@ std::optional<InputBindingKey> XInputSource::ParseKeyString(const std::string_vi
 	{
 		// likely an axis
 		const std::string_view axis_name(binding.substr(1));
-		for (u32 i = 0; i < std::size(s_axis_names); i++)
+		for (u32 i = 0; i < std::size(s_axis_setting_names); i++)
 		{
-			if (axis_name == s_axis_names[i])
+			if (axis_name == s_axis_setting_names[i])
 			{
 				// found an axis!
 				key.source_subtype = InputSubclass::ControllerAxis;
@@ -302,9 +335,9 @@ std::optional<InputBindingKey> XInputSource::ParseKeyString(const std::string_vi
 	else
 	{
 		// must be a button
-		for (u32 i = 0; i < std::size(s_button_names); i++)
+		for (u32 i = 0; i < std::size(s_button_setting_names); i++)
 		{
-			if (binding == s_button_names[i])
+			if (binding == s_button_setting_names[i])
 			{
 				key.source_subtype = InputSubclass::ControllerButton;
 				key.data = i;
@@ -317,24 +350,33 @@ std::optional<InputBindingKey> XInputSource::ParseKeyString(const std::string_vi
 	return std::nullopt;
 }
 
-TinyString XInputSource::ConvertKeyToString(InputBindingKey key)
+TinyString XInputSource::ConvertKeyToString(InputBindingKey key, bool display, bool migration)
 {
 	TinyString ret;
 
 	if (key.source_type == InputSourceType::XInput)
 	{
-		if (key.source_subtype == InputSubclass::ControllerAxis && key.data < std::size(s_axis_names))
+		if (key.source_subtype == InputSubclass::ControllerAxis && key.data < std::size(s_axis_setting_names))
 		{
 			const char modifier = key.modifier == InputModifier::Negate ? '-' : '+';
-			ret.format("XInput-{}/{}{}", static_cast<u32>(key.source_index), modifier, s_axis_names[key.data]);
+			if (display)
+				ret.format("XInput-{} {}{}", static_cast<u32>(key.source_index), modifier, s_axis_names[key.data]);
+			else
+				ret.format("XInput-{}/{}{}", static_cast<u32>(key.source_index), modifier, s_axis_setting_names[key.data]);
 		}
-		else if (key.source_subtype == InputSubclass::ControllerButton && key.data < std::size(s_button_names))
+		else if (key.source_subtype == InputSubclass::ControllerButton && key.data < std::size(s_button_setting_names))
 		{
-			ret.format("XInput-{}/{}", static_cast<u32>(key.source_index), s_button_names[key.data]);
+			if (display)
+				ret.format("XInput-{} {}", static_cast<u32>(key.source_index), s_button_names[key.data]);
+			else
+				ret.format("XInput-{}/{}", static_cast<u32>(key.source_index), s_button_setting_names[key.data]);
 		}
 		else if (key.source_subtype == InputSubclass::ControllerMotor)
 		{
-			ret.format("XInput-{}/{}Motor", static_cast<u32>(key.source_index), key.data ? "Large" : "Small");
+			if (display)
+				ret.format("XInput-{} {} Motor", static_cast<u32>(key.source_index), key.data ? "Small" : "Large");
+			else
+				ret.format("XInput-{}/{}Motor", static_cast<u32>(key.source_index), key.data ? "Small" : "Large");
 		}
 	}
 
@@ -345,7 +387,7 @@ TinyString XInputSource::ConvertKeyToIcon(InputBindingKey key)
 {
 	TinyString ret;
 
-	if (key.source_type == InputSourceType::SDL)
+	if (key.source_type == InputSourceType::XInput)
 	{
 		if (key.source_subtype == InputSubclass::ControllerAxis)
 		{
@@ -404,16 +446,16 @@ bool XInputSource::GetGenericBindingMapping(const std::string_view device, Input
 		const GenericInputBinding negative = s_xinput_generic_binding_axis_mapping[i][0];
 		const GenericInputBinding positive = s_xinput_generic_binding_axis_mapping[i][1];
 		if (negative != GenericInputBinding::Unknown)
-			mapping->emplace_back(negative, fmt::format("XInput-{}/-{}", pid, s_axis_names[i]));
+			mapping->emplace_back(negative, fmt::format("XInput-{}/-{}", pid, s_axis_setting_names[i]));
 
 		if (positive != GenericInputBinding::Unknown)
-			mapping->emplace_back(positive, fmt::format("XInput-{}/+{}", pid, s_axis_names[i]));
+			mapping->emplace_back(positive, fmt::format("XInput-{}/+{}", pid, s_axis_setting_names[i]));
 	}
 	for (u32 i = 0; i < std::size(s_xinput_generic_binding_button_mapping); i++)
 	{
 		const GenericInputBinding binding = s_xinput_generic_binding_button_mapping[i];
 		if (binding != GenericInputBinding::Unknown)
-			mapping->emplace_back(binding, fmt::format("XInput-{}/{}", pid, s_button_names[i]));
+			mapping->emplace_back(binding, fmt::format("XInput-{}/{}", pid, s_button_setting_names[i]));
 	}
 
 	if (m_controllers[pid].has_small_motor)
@@ -422,6 +464,11 @@ bool XInputSource::GetGenericBindingMapping(const std::string_view device, Input
 		mapping->emplace_back(GenericInputBinding::LargeMotor, fmt::format("XInput-{}/LargeMotor", pid));
 
 	return true;
+}
+
+InputLayout XInputSource::GetControllerLayout(u32 index)
+{
+	return InputLayout::Xbox;
 }
 
 void XInputSource::HandleControllerConnection(u32 index)
@@ -466,8 +513,11 @@ void XInputSource::CheckForStateChanges(u32 index, const XINPUT_STATE& new_state
 #define CHECK_AXIS(field, axis, min_value, max_value) \
 	if (ogp.field != ngp.field) \
 	{ \
-		InputManager::InvokeEvents(MakeGenericControllerAxisKey(InputSourceType::XInput, index, axis), \
-			static_cast<float>(ngp.field) / ((ngp.field < 0) ? min_value : max_value)); \
+		const float value = static_cast<float>(ngp.field) / ((ngp.field < 0) ? min_value : max_value); \
+		InputManager::InvokeEvents(MakeGenericControllerAxisKey(InputSourceType::XInput, index, axis), value, \
+			GenericInputBinding::Unknown, \
+			s_xinput_generic_binding_axis_mapping[axis][0], \
+			s_xinput_generic_binding_axis_mapping[axis][1]); \
 	}
 
 	// Y axes is inverted in XInput when compared to SDL.
@@ -513,7 +563,11 @@ void XInputSource::CheckForStateChangesSCP(u32 index, const SCP_EXTN& new_state)
 #define CHECK_AXIS(field, mult) \
 	if (ogp.field != ngp.field) \
 	{ \
-		InputManager::InvokeEvents(MakeGenericControllerAxisKey(InputSourceType::XInput, index, axis), ngp.field* mult); \
+		const float value = ngp.field * mult; \
+		InputManager::InvokeEvents(MakeGenericControllerAxisKey(InputSourceType::XInput, index, axis), value, \
+			GenericInputBinding::Unknown, \
+			s_xinput_generic_binding_axis_mapping[axis][0], \
+			s_xinput_generic_binding_axis_mapping[axis][1]); \
 	} \
 	axis++;
 

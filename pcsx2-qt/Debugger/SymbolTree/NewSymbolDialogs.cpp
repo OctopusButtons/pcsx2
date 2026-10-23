@@ -1,14 +1,15 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "NewSymbolDialogs.h"
 
+#include "AsyncDialogs.h"
+#include "Debugger/DebuggerWindow.h"
+#include "Debugger/SymbolTree/TypeString.h"
+
 #include <QtCore/QTimer>
 #include <QtCore/QMetaMethod>
-#include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPushButton>
-
-#include "TypeString.h"
 
 NewSymbolDialog::NewSymbolDialog(u32 flags, u32 alignment, DebugInterface& cpu, QWidget* parent)
 	: QDialog(parent)
@@ -242,7 +243,7 @@ u32 NewSymbolDialog::parseAddress(QString& error_message)
 NewFunctionDialog::NewFunctionDialog(DebugInterface& cpu, QWidget* parent)
 	: NewSymbolDialog(GLOBAL_STORAGE | SIZE_FIELD | EXISTING_FUNCTIONS_FIELD, 4, cpu, parent)
 {
-	setWindowTitle("New Function");
+	setWindowTitle(tr("New Function"));
 
 	m_ui.customSizeSpinBox->setValue(8);
 }
@@ -359,7 +360,7 @@ void NewFunctionDialog::createSymbol()
 	});
 
 	if (!error_message.isEmpty())
-		QMessageBox::warning(this, tr("Cannot Create Function"), error_message);
+		AsyncDialogs::warning(g_debugger_window, tr("Cannot Create Function"), error_message);
 }
 
 // *****************************************************************************
@@ -367,7 +368,7 @@ void NewFunctionDialog::createSymbol()
 NewGlobalVariableDialog::NewGlobalVariableDialog(DebugInterface& cpu, QWidget* parent)
 	: NewSymbolDialog(GLOBAL_STORAGE | TYPE_FIELD, 1, cpu, parent)
 {
-	setWindowTitle("New Global Variable");
+	setWindowTitle(tr("New Global Variable"));
 }
 
 bool NewGlobalVariableDialog::parseUserInput()
@@ -416,7 +417,7 @@ void NewGlobalVariableDialog::createSymbol()
 	});
 
 	if (!error_message.isEmpty())
-		QMessageBox::warning(this, tr("Cannot Create Global Variable"), error_message);
+		AsyncDialogs::warning(g_debugger_window, tr("Cannot Create Global Variable"), error_message);
 }
 
 // *****************************************************************************
@@ -424,7 +425,7 @@ void NewGlobalVariableDialog::createSymbol()
 NewLocalVariableDialog::NewLocalVariableDialog(DebugInterface& cpu, QWidget* parent)
 	: NewSymbolDialog(GLOBAL_STORAGE | REGISTER_STORAGE | STACK_STORAGE | TYPE_FIELD | FUNCTION_FIELD, 1, cpu, parent)
 {
-	setWindowTitle("New Local Variable");
+	setWindowTitle(tr("New Local Variable"));
 }
 
 bool NewLocalVariableDialog::parseUserInput()
@@ -534,7 +535,7 @@ void NewLocalVariableDialog::createSymbol()
 	});
 
 	if (!error_message.isEmpty())
-		QMessageBox::warning(this, tr("Cannot Create Local Variable"), error_message);
+		AsyncDialogs::warning(g_debugger_window, tr("Cannot Create Local Variable"), error_message);
 }
 
 // *****************************************************************************
@@ -542,7 +543,7 @@ void NewLocalVariableDialog::createSymbol()
 NewParameterVariableDialog::NewParameterVariableDialog(DebugInterface& cpu, QWidget* parent)
 	: NewSymbolDialog(REGISTER_STORAGE | STACK_STORAGE | TYPE_FIELD | FUNCTION_FIELD, 1, cpu, parent)
 {
-	setWindowTitle("New Parameter Variable");
+	setWindowTitle(tr("New Parameter Variable"));
 }
 
 bool NewParameterVariableDialog::parseUserInput()
@@ -566,7 +567,6 @@ bool NewParameterVariableDialog::parseUserInput()
 			return;
 		}
 
-		std::variant<ccc::RegisterStorage, ccc::StackStorage> storage;
 		switch (storageType())
 		{
 			case GLOBAL_STORAGE:
@@ -576,13 +576,13 @@ bool NewParameterVariableDialog::parseUserInput()
 			}
 			case REGISTER_STORAGE:
 			{
-				ccc::RegisterStorage& register_storage = storage.emplace<ccc::RegisterStorage>();
+				ccc::RegisterStorage& register_storage = m_storage.emplace<ccc::RegisterStorage>();
 				register_storage.dbx_register_number = m_ui.registerComboBox->currentIndex();
 				break;
 			}
 			case STACK_STORAGE:
 			{
-				ccc::StackStorage& stack_storage = storage.emplace<ccc::StackStorage>();
+				ccc::StackStorage& stack_storage = m_storage.emplace<ccc::StackStorage>();
 				stack_storage.stack_pointer_offset = m_ui.stackPointerOffsetSpinBox->value();
 
 				// Convert to caller sp relative.
@@ -648,5 +648,7 @@ void NewParameterVariableDialog::createSymbol()
 	});
 
 	if (!error_message.isEmpty())
-		QMessageBox::warning(this, tr("Cannot Create Parameter Variable"), error_message);
+		AsyncDialogs::warning(g_debugger_window, tr("Cannot Create Parameter Variable"), error_message);
 }
+
+#include "moc_NewSymbolDialogs.cpp"

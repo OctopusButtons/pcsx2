@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Sio.h"
@@ -156,7 +156,6 @@ void MemcardBusy::ClearBusy()
 	sioLastFrameMcdBusy = 0;
 }
 
-#include "common/Console.h"
 void MemcardBusy::CheckSaveStateDependency()
 {
 	if (g_FrameCount - sioLastFrameMcdBusy > NUM_FRAMES_BEFORE_SAVESTATE_DEPENDENCY_WARNING)

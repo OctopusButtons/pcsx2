@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -228,7 +228,7 @@ __fi void mVUanalyzeIALU2(mV, int Is, int It)
 __fi void mVUanalyzeIADDI(mV, int Is, int It, s16 imm)
 {
 	mVUanalyzeIALU2(mVU, Is, It);
-	if (!Is)
+	if (!Is && !EmuConfig.Gamefixes.IbitHack)
 	{
 		setConstReg(It, imm);
 	}

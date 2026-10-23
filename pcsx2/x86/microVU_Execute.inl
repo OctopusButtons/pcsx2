@@ -1,10 +1,10 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "Config.h"
-#include "cpuinfo.h"
+#include "GS/MultiISA.h"
 
 //------------------------------------------------------------------
 // Dispatcher Functions
@@ -207,15 +207,17 @@ static void mVUGenerateCopyPipelineState(mV)
 {
 	mVU.copyPLState = xGetAlignedCallTarget();
 
-	if (cpuinfo_has_x86_avx())
-	{
-		xVMOVAPS(ymm0, ptr[rax]);
-		xVMOVAPS(ymm1, ptr[rax + 32u]);
-		xVMOVAPS(ymm2, ptr[rax + 64u]);
+	xLoadFarAddr(rdx, reinterpret_cast<u8*>(&mVU.prog.lpState));
 
-		xVMOVUPS(ptr[reinterpret_cast<u8*>(&mVU.prog.lpState)], ymm0);
-		xVMOVUPS(ptr[reinterpret_cast<u8*>(&mVU.prog.lpState) + 32u], ymm1);
-		xVMOVUPS(ptr[reinterpret_cast<u8*>(&mVU.prog.lpState) + 64u], ymm2);
+	if (g_cpu.vectorISA >= ProcessorFeatures::VectorISA::AVX)
+	{
+		xMOVAPS(ymm0, ptr[rax]);
+		xMOVAPS(ymm1, ptr[rax + 32u]);
+		xMOVAPS(ymm2, ptr[rax + 64u]);
+
+		xMOVUPS(ptr[rdx], ymm0);
+		xMOVUPS(ptr[rdx + 32u], ymm1);
+		xMOVUPS(ptr[rdx + 64u], ymm2);
 
 		xVZEROUPPER();
 	}
@@ -228,12 +230,12 @@ static void mVUGenerateCopyPipelineState(mV)
 		xMOVAPS(xmm4, ptr[rax + 64u]);
 		xMOVAPS(xmm5, ptr[rax + 80u]);
 
-		xMOVUPS(ptr[reinterpret_cast<u8*>(&mVU.prog.lpState)], xmm0);
-		xMOVUPS(ptr[reinterpret_cast<u8*>(&mVU.prog.lpState) + 16u], xmm1);
-		xMOVUPS(ptr[reinterpret_cast<u8*>(&mVU.prog.lpState) + 32u], xmm2);
-		xMOVUPS(ptr[reinterpret_cast<u8*>(&mVU.prog.lpState) + 48u], xmm3);
-		xMOVUPS(ptr[reinterpret_cast<u8*>(&mVU.prog.lpState) + 64u], xmm4);
-		xMOVUPS(ptr[reinterpret_cast<u8*>(&mVU.prog.lpState) + 80u], xmm5);
+		xMOVUPS(ptr[rdx], xmm0);
+		xMOVUPS(ptr[rdx + 16u], xmm1);
+		xMOVUPS(ptr[rdx + 32u], xmm2);
+		xMOVUPS(ptr[rdx + 48u], xmm3);
+		xMOVUPS(ptr[rdx + 64u], xmm4);
+		xMOVUPS(ptr[rdx + 80u], xmm5);
 	}
 
 	xRET();
@@ -252,7 +254,7 @@ static void mVUGenerateCompareState(mV)
 {
 	mVU.compareStateF = xGetAlignedCallTarget();
 
-	if (!cpuinfo_has_x86_avx2())
+	if (g_cpu.vectorISA < ProcessorFeatures::VectorISA::AVX2)
 	{
 		xMOVAPS  (xmm0, ptr32[arg1reg]);
 		xPCMP.EQD(xmm0, ptr32[arg2reg]);
@@ -285,19 +287,19 @@ static void mVUGenerateCompareState(mV)
 	else
 	{
 		// We have to use unaligned loads here, because the blocks are only 16 byte aligned.
-		xVMOVUPS(ymm0, ptr[arg1reg]);
-		xVPCMP.EQD(ymm0, ymm0, ptr[arg2reg]);
-		xVPMOVMSKB(eax, ymm0);
+		xMOVUPS(ymm0, ptr[arg1reg]);
+		xPCMP.EQD(ymm0, ymm0, ptr[arg2reg]);
+		xPMOVMSKB(eax, ymm0);
 		xXOR(eax, 0xffffffff);
 		xForwardJNZ8 exitPoint;
 
-		xVMOVUPS(ymm0, ptr[arg1reg + 0x20]);
-		xVMOVUPS(ymm1, ptr[arg1reg + 0x40]);
-		xVPCMP.EQD(ymm0, ymm0, ptr[arg2reg + 0x20]);
-		xVPCMP.EQD(ymm1, ymm1, ptr[arg2reg + 0x40]);
-		xVPAND(ymm0, ymm0, ymm1);
+		xMOVUPS(ymm0, ptr[arg1reg + 0x20]);
+		xMOVUPS(ymm1, ptr[arg1reg + 0x40]);
+		xPCMP.EQD(ymm0, ymm0, ptr[arg2reg + 0x20]);
+		xPCMP.EQD(ymm1, ymm1, ptr[arg2reg + 0x40]);
+		xPAND(ymm0, ymm0, ymm1);
 
-		xVPMOVMSKB(eax, ymm0);
+		xPMOVMSKB(eax, ymm0);
 		xNOT(eax);
 
 		exitPoint.SetTarget();
@@ -326,6 +328,7 @@ _mVUt void* mVUexecute(u32 startPC, u32 cycles)
 	mVU.cycles = cycles;
 	mVU.totalCycles = cycles;
 
+	xSetTextPtr(mVU.textPtr());
 	xSetPtr(mVU.prog.x86ptr); // Set x86ptr to where last program left off
 	return mVUsearchProg<vuIndex>(startPC & vuLimit, (uptr)&mVU.prog.lpState); // Find and set correct program
 }
@@ -354,7 +357,7 @@ _mVUt void mVUcleanUp()
 		u32 cycles_passed = std::min(mVU.cycles, 3000) * EmuConfig.Speedhacks.EECycleSkip;
 		if (cycles_passed > 0)
 		{
-			s32 vu0_offset = VU0.cycle - cpuRegs.cycle;
+			s64 vu0_offset = VU0.cycle - cpuRegs.cycle;
 			cpuRegs.cycle += cycles_passed;
 
 			// VU0 needs to stay in sync with the CPU otherwise things get messy

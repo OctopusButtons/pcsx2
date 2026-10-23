@@ -1,20 +1,18 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
-#include <QtWidgets/QWidget>
-
 #include "ui_EmulationSettingsWidget.h"
 
-class SettingsWindow;
+#include "SettingsWidget.h"
 
-class EmulationSettingsWidget : public QWidget
+class EmulationSettingsWidget : public SettingsWidget
 {
 	Q_OBJECT
 
 public:
-	EmulationSettingsWidget(SettingsWindow* dialog, QWidget* parent);
+	EmulationSettingsWidget(SettingsWindow* settings_dialog, QWidget* parent);
 	~EmulationSettingsWidget();
 
 private Q_SLOTS:
@@ -26,8 +24,7 @@ private:
 	void updateOptimalFramePacing();
 	void updateUseVSyncForTimingEnabled();
 	void onManuallySetRealTimeClockChanged();
-
-	SettingsWindow* m_dialog;
+	void onUseSystemLocaleFormatChanged();
 
 	Ui::EmulationSettingsWidget m_ui;
 };

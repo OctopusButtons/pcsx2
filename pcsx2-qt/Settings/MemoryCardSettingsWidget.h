@@ -1,19 +1,19 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
-#include <array>
-#include <optional>
-#include <string>
+#include "SettingsWidget.h"
 
 #include <QtGui/QResizeEvent>
-#include <QtWidgets/QWidget>
 #include <QtWidgets/QTreeWidget>
 #include <QtWidgets/QToolButton>
 #include <QtWidgets/QListWidget>
+#include <QtWidgets/QCheckBox>
 
-class SettingsWindow;
+#include <array>
+#include <optional>
+#include <string>
 
 struct AvailableMcdInfo;
 
@@ -21,12 +21,26 @@ class MemoryCardListWidget final : public QTreeWidget
 {
 	Q_OBJECT
 public:
+	enum MemoryCardListColumn : int
+	{
+		Name,
+		Type,
+		Formatted,
+		LastModified,
+	};
+
 	explicit MemoryCardListWidget(QWidget* parent);
 	~MemoryCardListWidget() override;
 
 	void refresh(SettingsWindow* dialog);
 
 protected:
+	class MemoryCardListItem : public QTreeWidgetItem
+	{
+	public:
+		bool operator<(const QTreeWidgetItem& other) const override;
+	};
+
 	void mousePressEvent(QMouseEvent* event) override;
 	void mouseMoveEvent(QMouseEvent* event) override;
 
@@ -56,7 +70,7 @@ protected:
 // Must be included *after* the custom widgets.
 #include "ui_MemoryCardSettingsWidget.h"
 
-class MemoryCardSettingsWidget : public QWidget
+class MemoryCardSettingsWidget : public SettingsWidget
 {
 	Q_OBJECT
 
@@ -66,7 +80,7 @@ public:
 		MAX_SLOTS = 2
 	};
 
-	MemoryCardSettingsWidget(SettingsWindow* dialog, QWidget* parent);
+	MemoryCardSettingsWidget(SettingsWindow* settings_dialog, QWidget* parent);
 	~MemoryCardSettingsWidget();
 
 protected:
@@ -96,6 +110,9 @@ private:
 
 	void createCard();
 
+	void saveCardListSortState();
+	void loadCardListSortState();
+
 	QString getSelectedCard() const;
 	bool isSelectedCardFormatted() const;
 	void updateCardActions();
@@ -103,7 +120,6 @@ private:
 	void renameCard();
 	void convertCard();
 
-	SettingsWindow* m_dialog;
 	Ui::MemoryCardSettingsWidget m_ui;
 
 	std::array<SlotGroup, MAX_SLOTS> m_slots;

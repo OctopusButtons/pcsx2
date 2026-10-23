@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -165,11 +165,12 @@ enum class LogicalOp
 
 static void recLogicalOpI(int info, LogicalOp op)
 {
-	xImpl_G1Logic bad{};
-	const xImpl_G1Logic& xOP = op == LogicalOp::AND ? xAND : op == LogicalOp::OR ? xOR :
-														 op == LogicalOp::XOR    ? xXOR :
-                                                                                   bad;
-	pxAssert(&xOP != &bad);
+	xImpl_G1Logic* bad = nullptr;
+	const xImpl_G1Logic& xOP = op == LogicalOp::AND ? xAND
+	                         : op == LogicalOp::OR  ? xOR
+	                         : op == LogicalOp::XOR ? xXOR
+	                         : *bad;
+	pxAssert(&xOP != bad);
 
 	if (_ImmU_ != 0)
 	{

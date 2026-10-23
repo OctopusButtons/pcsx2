@@ -1,18 +1,18 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
-#include <QtWidgets/QWidget>
+
 #include "ui_AchievementSettingsWidget.h"
 
-class SettingsWindow;
+#include "SettingsWidget.h"
 
-class AchievementSettingsWidget : public QWidget
+class AchievementSettingsWidget : public SettingsWidget
 {
 	Q_OBJECT
 
 public:
-	explicit AchievementSettingsWidget(SettingsWindow* dialog, QWidget* parent);
+	explicit AchievementSettingsWidget(SettingsWindow* settings_dialog, QWidget* parent);
 	~AchievementSettingsWidget();
 
 private Q_SLOTS:
@@ -28,6 +28,4 @@ private:
 	void updateLoginState();
 
 	Ui::AchievementSettingsWidget m_ui;
-
-	SettingsWindow* m_dialog;
 };

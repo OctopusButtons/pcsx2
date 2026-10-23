@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "MainWindow.h"
@@ -9,7 +9,6 @@
 #include "Settings/AudioSettingsWidget.h"
 #include "Settings/BIOSSettingsWidget.h"
 #include "Settings/DEV9SettingsWidget.h"
-#include "Settings/DebugSettingsWidget.h"
 #include "Settings/EmulationSettingsWidget.h"
 #include "Settings/FolderSettingsWidget.h"
 #include "Settings/GameCheatSettingsWidget.h"
@@ -18,9 +17,11 @@
 #include "Settings/GamePatchSettingsWidget.h"
 #include "Settings/GameSummaryWidget.h"
 #include "Settings/GraphicsSettingsWidget.h"
+#include "Settings/OSDSettingsWidget.h"
 #include "Settings/HotkeySettingsWidget.h"
 #include "Settings/InterfaceSettingsWidget.h"
 #include "Settings/MemoryCardSettingsWidget.h"
+#include "Settings/DebugSettingsWidget.h"
 #include "SettingsWindow.h"
 
 #include "pcsx2/Achievements.h"
@@ -157,6 +158,9 @@ void SettingsWindow::setupUi(const GameList::Entry* game)
 	addWidget(m_graphics_settings = new GraphicsSettingsWidget(this, m_ui.settingsContainer), tr("Graphics"), QStringLiteral("image-fill"),
 		tr("<strong>Graphics Settings</strong><hr>These options determine the configuration of the graphical output.<br><br>Mouse over an "
 		   "option for additional information, and Shift+Wheel to scroll this panel."));
+	addWidget(m_osd_settings = new OSDSettingsWidget(this, m_ui.settingsContainer), tr("On-Screen Display"),
+		QStringLiteral("heart-circle-line"),
+		tr("<strong>On-Screen Display Settings</strong><hr>These options control the on-screen display (OSD) overlays shown during gameplay.<br><br>Mouse over an option for additional information, and Shift+Wheel to scroll this panel."));
 	addWidget(m_audio_settings = new AudioSettingsWidget(this, m_ui.settingsContainer), tr("Audio"), QStringLiteral("volume-up-line"),
 		tr("<strong>Audio Settings</strong><hr>These options control the audio output of the console.<br><br>Mouse over an option for "
 		   "additional information, and Shift+Wheel to scroll this panel."));
@@ -204,7 +208,7 @@ void SettingsWindow::setupUi(const GameList::Entry* game)
 			tr("<strong>Advanced Settings</strong><hr>These are advanced options to determine the configuration of the simulated "
 			   "console.<br><br>Mouse over an option for additional information, and Shift+Wheel to scroll this panel."));
 		addWidget(m_debug_settings = new DebugSettingsWidget(this, m_ui.settingsContainer), tr("Debug"),
-			QStringLiteral("debugger-line"),
+			QStringLiteral("bug-line"),
 			tr("<strong>Debug Settings</strong><hr>These are options which can be used to log internal information about the application. "
 			   "<strong>Do not modify unless you know what you are doing</strong>, it will cause significant slowdown, and can waste large "
 			   "amounts of disk space."));
@@ -655,7 +659,7 @@ void SettingsWindow::saveAndReloadGameSettings()
 	g_emu_thread->reloadGameSettings();
 }
 
-void SettingsWindow::openGamePropertiesDialog(const GameList::Entry* game, const std::string_view title, std::string serial, u32 disc_crc, bool is_elf)
+void SettingsWindow::openGamePropertiesDialog(const GameList::Entry* game, const std::string_view title, std::string serial, u32 disc_crc, bool is_elf, const char* category)
 {
 	std::string filename = VMManager::GetGameSettingsPath(!is_elf ? serial : std::string_view(), disc_crc);
 
@@ -664,6 +668,8 @@ void SettingsWindow::openGamePropertiesDialog(const GameList::Entry* game, const
 	{
 		if (dialog->isPerGameSettings() && static_cast<INISettingsInterface*>(dialog->m_sif.get())->GetFileName() == filename)
 		{
+			if (category)
+				dialog->setCategory(category);
 			dialog->show();
 			dialog->raise();
 			dialog->activateWindow();
@@ -678,6 +684,8 @@ void SettingsWindow::openGamePropertiesDialog(const GameList::Entry* game, const
 
 	SettingsWindow* dialog = new SettingsWindow(std::move(sif), game, std::move(serial), disc_crc, QtUtils::StringViewToQString(Path::GetFileName(filename)));
 	dialog->setWindowTitle(QtUtils::StringViewToQString(title));
+	if (category)
+		dialog->setCategory(category);
 	dialog->show();
 }
 
@@ -689,3 +697,5 @@ void SettingsWindow::closeGamePropertiesDialogs()
 		dialog->deleteLater();
 	}
 }
+
+#include "moc_SettingsWindow.cpp"

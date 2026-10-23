@@ -99,13 +99,15 @@
     <addaction name="actionBIOSSettings"/>
     <addaction name="actionEmulationSettings"/>
     <addaction name="actionGraphicsSettings"/>
+    <addaction name="actionOSDSettings"/>
     <addaction name="actionAudioSettings"/>
     <addaction name="actionMemoryCardSettings"/>
     <addaction name="actionDEV9Settings"/>
     <addaction name="actionFolderSettings"/>
+    <addaction name="actionAchievementSettings"/>
+    <addaction name="separator"/>
     <addaction name="actionControllerSettings"/>
     <addaction name="actionHotkeySettings"/>
-    <addaction name="actionAchievementSettings"/>
     <addaction name="separator"/>
     <addaction name="actionAddGameDirectory"/>
     <addaction name="actionScanForNewGames"/>
@@ -132,7 +134,7 @@
     </property>
     <widget class="QMenu" name="menuDebugSwitchRenderer">
      <property name="title">
-      <string>&amp;Switch Renderer</string>
+      <string>&amp;Switch Graphics API</string>
      </property>
      <property name="icon">
       <iconset theme="brush-line"/>
@@ -162,6 +164,7 @@
     </widget>
     <addaction name="actionViewToolbar"/>
     <addaction name="actionViewLockToolbar"/>
+    <addaction name="actionCustomizeToolbar"/>
     <addaction name="actionViewStatusBar"/>
     <addaction name="actionViewStatusBarVerbose"/>
     <addaction name="separator"/>
@@ -173,6 +176,7 @@
     <addaction name="menuWindowSize"/>
     <addaction name="separator"/>
     <addaction name="actionGridViewShowTitles"/>
+    <addaction name="actionGridViewShowFullTitles"/>
     <addaction name="actionGridViewZoomIn"/>
     <addaction name="actionGridViewZoomOut"/>
     <addaction name="actionGridViewRefreshCovers"/>
@@ -199,6 +203,7 @@
     </widget>
     <addaction name="actionOpenDataDirectory"/>
     <addaction name="actionCoverDownloader"/>
+    <addaction name="actionControllerTester"/>
     <addaction name="actionToggleSoftwareRendering"/>
     <addaction name="separator"/>
     <addaction name="actionEditCheats"/>
@@ -266,6 +271,7 @@
    <addaction name="separator"/>
    <addaction name="actionToolbarSettings"/>
    <addaction name="actionToolbarControllerSettings"/>
+   <addaction name="actionToolbarHotkeySettings"/>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
   <action name="actionStartFile">
@@ -458,6 +464,14 @@
     <string>&amp;Hotkeys</string>
    </property>
   </action>
+  <action name="actionToolbarHotkeySettings">
+   <property name="icon">
+    <iconset theme="keyboard-line"/>
+   </property>
+   <property name="text">
+    <string comment="In Toolbar">Hotkeys</string>
+   </property>
+  </action>
   <action name="actionGraphicsSettings">
    <property name="icon">
     <iconset theme="image-fill"/>
@@ -580,6 +594,14 @@
    </property>
    <property name="text">
     <string>&amp;Audio</string>
+   </property>
+  </action>
+  <action name="actionOSDSettings">
+   <property name="icon">
+    <iconset theme="heart-circle-line"/>
+   </property>
+   <property name="text">
+    <string>&amp;On-Screen Display</string>
    </property>
   </action>
   <action name="actionGameListSettings">
@@ -715,6 +737,11 @@
     <string>Loc&amp;k Toolbar</string>
    </property>
   </action>
+  <action name="actionCustomizeToolbar">
+   <property name="text">
+    <string>&amp;Customize Toolbar...</string>
+   </property>
+  </action>
   <action name="actionViewStatusBar">
    <property name="checkable">
     <bool>true</bool>
@@ -789,6 +816,20 @@
     <string>Show Titl&amp;es (Grid View)</string>
    </property>
   </action>
+  <action name="actionGridViewShowFullTitles">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset theme="price-tag-2-line"/>
+   </property>
+   <property name="text">
+    <string>Show F&amp;ull Titles (Grid View)</string>
+   </property>
+  </action>
   <action name="actionGridViewZoomIn">
    <property name="icon">
     <iconset theme="zoom-in-line"/>
@@ -845,7 +886,7 @@
   </action>
   <action name="actionDebugger">
    <property name="icon">
-    <iconset theme="heart-circle-line"/>
+    <iconset theme="bug-line"/>
    </property>
    <property name="text">
     <string>&amp;Open Debugger</string>
@@ -1016,6 +1057,14 @@
     <string>&amp;Cover Downloader...</string>
    </property>
   </action>
+  <action name="actionControllerTester">
+   <property name="icon">
+    <iconset theme="controller-line"/>
+   </property>
+   <property name="text">
+    <string>Controller &amp;Tester</string>
+   </property>
+  </action>
   <action name="actionShowAdvancedSettings">
    <property name="checkable">
     <bool>true</bool>
@@ -1037,7 +1086,7 @@
     <iconset theme="camera-video"/>
    </property>
    <property name="text">
-    <string>&amp;Video Capture</string>
+    <string comment="In Toolbar">&amp;Video Capture</string>
    </property>
   </action>
   <action name="actionEditCheats">

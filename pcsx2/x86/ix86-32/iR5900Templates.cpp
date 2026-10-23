@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -7,9 +7,6 @@
 #include "VU.h"
 #include "VUmicro.h"
 #include "vtlb.h"
-#include "x86/iCOP0.h"
-#include "x86/iFPU.h"
-#include "x86/iMMI.h"
 #include "x86/iR5900.h"
 
 using namespace x86Emitter;

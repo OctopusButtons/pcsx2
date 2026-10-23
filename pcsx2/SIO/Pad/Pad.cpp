@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Host.h"
@@ -14,7 +14,7 @@
 
 #include "Input/SDLInputSource.h"
 
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 
 #include "VMManager.h"
 #include "common/Assertions.h"
@@ -123,8 +123,10 @@ void Pad::LoadConfig(const SettingsInterface& si)
 
 		const float axis_deadzone = si.GetFloatValue(section.c_str(), "Deadzone", Pad::DEFAULT_STICK_DEADZONE);
 		const float axis_scale = si.GetFloatValue(section.c_str(), "AxisScale", Pad::DEFAULT_STICK_SCALE);
+		const bool use_diagonal_scale_correction = si.GetBoolValue(section.c_str(), "UseDiagonalScaleCorrection", Pad::DEFAULT_USE_DIAGONAL_SCALE_CORRECTION);
 		const float button_deadzone = si.GetFloatValue(section.c_str(), "ButtonDeadzone", Pad::DEFAULT_BUTTON_DEADZONE);
 		pad->SetAxisScale(axis_deadzone, axis_scale);
+		pad->SetDiagonalScaleCorrection(use_diagonal_scale_correction);
 		pad->SetButtonDeadzone(button_deadzone);
 
 		if (ci->vibration_caps != Pad::VibrationCapabilities::NoVibration)
@@ -167,8 +169,8 @@ void Pad::SetDefaultControllerConfig(SettingsInterface& si)
 			InputManager::InputSourceToString(static_cast<InputSourceType>(i)),
 			InputManager::GetInputSourceDefaultEnabled(static_cast<InputSourceType>(i)));
 	}
-	si.SetBoolValue("InputSources", "SDLControllerEnhancedMode", false);
-	si.SetBoolValue("InputSources", "SDLPS5PlayerLED", false);
+	si.SetBoolValue("InputSources", "SDLControllerEnhancedMode", true);
+	si.SetBoolValue("InputSources", "SDLPS5PlayerLED", true);
 	si.SetBoolValue("Pad", "MultitapPort1", false);
 	si.SetBoolValue("Pad", "MultitapPort2", false);
 	si.SetFloatValue("Pad", "PointerXScale", 8.0f);
@@ -223,6 +225,8 @@ void Pad::SetDefaultHotkeyConfig(SettingsInterface& si)
 	// PCSX2 Controller Settings - Hotkeys - Graphics
 	si.SetStringValue("Hotkeys", "CycleAspectRatio", "Keyboard/F6");
 	si.SetStringValue("Hotkeys", "CycleInterlaceMode", "Keyboard/F5");
+	// si.SetStringValue("Hotkeys", "CycleTVShader", "Keyboard/"); TBD
+	// si.SetStringValue("Hotkeys", "CycleBlendingAccuracy", "Keyboard/"); TBD
 	si.SetStringValue("Hotkeys", "ToggleMipmapMode", "Keyboard/Insert");
 	//	si.SetStringValue("Hotkeys", "DecreaseUpscaleMultiplier", "Keyboard"); TBD
 	//	si.SetStringValue("Hotkeys", "IncreaseUpscaleMultiplier", "Keyboard"); TBD
@@ -230,12 +234,17 @@ void Pad::SetDefaultHotkeyConfig(SettingsInterface& si)
 	si.SetStringValue("Hotkeys", "GSDumpMultiFrame", "Keyboard/Control & Keyboard/Shift & Keyboard/F8");
 	si.SetStringValue("Hotkeys", "Screenshot", "Keyboard/F8");
 	si.SetStringValue("Hotkeys", "GSDumpSingleFrame", "Keyboard/Shift & Keyboard/F8");
+	si.SetStringValue("Hotkeys", "GSStartSavingMetricsVariableFrames", "Keyboard/F10");
+	si.SetStringValue("Hotkeys", "GSStartSavingMetricsFixedFrames", "Keyboard/Control & Keyboard/F10");
 	si.SetStringValue("Hotkeys", "ToggleSoftwareRendering", "Keyboard/F9");
 	//  si.SetStringValue("Hotkeys", "ToggleTextureDumping", "Keyboard"); TBD
 	//  si.SetStringValue("Hotkeys", "ToggleTextureReplacements", "Keyboard"); TBD
 	si.SetStringValue("Hotkeys", "ZoomIn", "Keyboard/Control & Keyboard/Plus");
 	si.SetStringValue("Hotkeys", "ZoomOut", "Keyboard/Control & Keyboard/Minus");
 	// Missing hotkey for resetting zoom back to 100 with Keyboard/Control & Keyboard/Asterisk
+
+	// PCSX2 Controller Settings - Hotkeys - Graphics
+	si.SetStringValue("Hotkeys", "Mute", "Keyboard/Control & Keyboard/M");
 
 	// PCSX2 Controller Settings - Hotkeys - Input Recording
 	si.SetStringValue("Hotkeys", "InputRecToggleMode", "Keyboard/Shift & Keyboard/R");
@@ -549,6 +558,32 @@ void Pad::SetControllerState(u32 controller, u32 bind, float value)
 	s_controllers[controller]->Set(bind, value);
 }
 
+void Pad::ResetControllerInputs(u32 controller)
+{
+	if (controller >= NUM_CONTROLLER_PORTS || !HasConnectedPad(controller))
+		return;
+
+	for (InputBindingInfo binding : s_controllers[controller]->GetInfo().bindings)
+	{
+		switch (binding.bind_type)
+		{
+			case InputBindingInfo::Type::Button:
+			case InputBindingInfo::Type::Axis:
+			case InputBindingInfo::Type::HalfAxis:
+				s_controllers[controller]->Set(binding.bind_index, 0);
+				break;
+			default:
+				break;
+		}
+	}
+}
+
+void Pad::ResetAllControllerInputs()
+{
+	for (u32 port = 0; port < NUM_CONTROLLER_PORTS; port++)
+		ResetControllerInputs(port);
+}
+
 bool Pad::Freeze(StateWrapper& sw)
 {
 	if (sw.IsReading())
@@ -580,9 +615,10 @@ bool Pad::Freeze(StateWrapper& sw)
 
 				const auto& [port, slot] = sioConvertPadToPortAndSlot(unifiedSlot);
 				Host::AddIconOSDMessage(fmt::format("UnfreezePad{}Changed", unifiedSlot), ICON_FA_GAMEPAD,
+					//: {0} and {1} are the port and multitap slot, {2} and {3} are controller types (e.g. "DualShock 2", "Jogcon")
 					fmt::format(TRANSLATE_FS("Pad",
 									"Controller port {0}, slot {1} has a {2} connected, but the save state has a "
-									"{3}.\nEjecting {3} and replacing it with {2}."),
+									"{3}.\nEjecting {2} and replacing it with {3}."),
 						port, slot,
 						GetControllerTypeName(currentPad ? currentPad->GetType() : Pad::ControllerType::NotConnected),
 						GetControllerTypeName(statePadType)));
@@ -697,7 +733,7 @@ void Pad::SetMacroButtonState(InputBindingKey& key, u32 pad, u32 index, bool sta
 	}
 	if (mb.active_buttons.find(key.bits) != mb.active_buttons.end())
 		mb.active_buttons.erase(key.bits);
-	
+
 	mb.active_buttons.emplace(key.bits, state);
 
 	if (mb.active_buttons.size() != binding_count)

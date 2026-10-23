@@ -1,15 +1,13 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
-#include <QtWidgets/QWidget>
-
 #include "ui_FolderSettingsWidget.h"
 
-class SettingsWindow;
+#include "SettingsWidget.h"
 
-class FolderSettingsWidget : public QWidget
+class FolderSettingsWidget : public SettingsWidget
 {
 	Q_OBJECT
 

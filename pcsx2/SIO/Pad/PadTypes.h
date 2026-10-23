@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -101,6 +101,7 @@ namespace Pad
 	// Default stick deadzone/sensitivity.
 	static constexpr float DEFAULT_STICK_DEADZONE = 0.0f;
 	static constexpr float DEFAULT_STICK_SCALE = 1.33f;
+	static constexpr float DEFAULT_USE_DIAGONAL_SCALE_CORRECTION = false;
 	static constexpr float DEFAULT_MOTOR_SCALE = 1.0f;
 	static constexpr float DEFAULT_PRESSURE_MODIFIER = 0.5f;
 	static constexpr float DEFAULT_BUTTON_DEADZONE = 0.0f;

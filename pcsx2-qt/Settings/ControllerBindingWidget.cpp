@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <QtCore/QDir>
@@ -7,6 +7,7 @@
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QScrollArea>
 #include <algorithm>
+#include <array>
 #include "fmt/format.h"
 
 #include "common/Console.h"
@@ -14,6 +15,7 @@
 
 #include "pcsx2/Host.h"
 #include "pcsx2/SIO/Pad/Pad.h"
+#include "pcsx2/SIO/Sio.h"
 
 #include "Settings/ControllerBindingWidget.h"
 #include "Settings/ControllerSettingsWindow.h"
@@ -41,7 +43,18 @@ ControllerBindingWidget::ControllerBindingWidget(QWidget* parent, ControllerSett
 	, m_port_number(port)
 {
 	m_ui.setupUi(this);
-	m_ui.groupBox->setTitle(tr("Controller Port %1").arg(port + 1));
+
+	const auto [pad_port, pad_slot] = sioConvertPadToPortAndSlot(port);
+	const bool mtap_enabled = m_dialog->getBoolValue("Pad", (pad_port == 0) ? "MultitapPort1" : "MultitapPort2", false);
+	if (mtap_enabled)
+	{
+		static constexpr const std::array<char, 4> s_mtap_slot_names = {{'A', 'B', 'C', 'D'}};
+		m_ui.groupBox->setTitle(tr("Controller Port %1%2").arg(pad_port + 1).arg(s_mtap_slot_names[pad_slot]));
+	}
+	else
+	{
+		m_ui.groupBox->setTitle(tr("Controller Port %1").arg(pad_port + 1));
+	}
 
 	populateControllerTypes();
 	onTypeChanged();
@@ -49,7 +62,7 @@ ControllerBindingWidget::ControllerBindingWidget(QWidget* parent, ControllerSett
 	ControllerSettingWidgetBinder::BindWidgetToInputProfileString(m_dialog->getProfileSettingsInterface(),
 		m_ui.controllerType, m_config_section, "Type", Pad::GetControllerInfo(Pad::GetDefaultPadType(port))->name);
 
-	connect(m_ui.controllerType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ControllerBindingWidget::onTypeChanged);
+	connect(m_ui.controllerType, &QComboBox::currentIndexChanged, this, &ControllerBindingWidget::onTypeChanged);
 	connect(m_ui.bindings, &QPushButton::clicked, this, &ControllerBindingWidget::onBindingsClicked);
 	connect(m_ui.settings, &QPushButton::clicked, this, &ControllerBindingWidget::onSettingsClicked);
 	connect(m_ui.macros, &QPushButton::clicked, this, &ControllerBindingWidget::onMacrosClicked);
@@ -202,7 +215,11 @@ void ControllerBindingWidget::onAutomaticBindingClicked()
 	for (const QPair<QString, QString>& dev : m_dialog->getDeviceList())
 	{
 		// we set it as data, because the device list could get invalidated while the menu is up
-		QAction* action = menu.addAction(QStringLiteral("%1 (%2)").arg(dev.first).arg(dev.second));
+		QAction* action;
+		if (dev.first.compare(dev.second, Qt::CaseInsensitive) == 0)
+			action = menu.addAction(dev.first);
+		else
+			action = menu.addAction(QStringLiteral("%1: %2").arg(dev.first).arg(dev.second));
 		action->setData(dev.first);
 		connect(action, &QAction::triggered, this, [this, action]() { doDeviceAutomaticBinding(action->data().toString()); });
 		added = true;
@@ -290,7 +307,20 @@ ControllerMacroWidget::ControllerMacroWidget(ControllerBindingWidget* parent)
 	: QWidget(parent)
 {
 	m_ui.setupUi(this);
-	setWindowTitle(tr("Controller Port %1 Macros").arg(parent->getPortNumber() + 1u));
+
+	const u32 port = parent->getPortNumber();
+	const auto [pad_port, pad_slot] = sioConvertPadToPortAndSlot(port);
+	const bool mtap_enabled = parent->getDialog()->getBoolValue("Pad", (pad_port == 0) ? "MultitapPort1" : "MultitapPort2", false);
+	if (mtap_enabled)
+	{
+		static constexpr const std::array<char, 4> s_mtap_slot_names = {{'A', 'B', 'C', 'D'}};
+		setWindowTitle(tr("Controller Port %1%2 Macros").arg(pad_port + 1).arg(s_mtap_slot_names[pad_slot]));
+	}
+	else
+	{
+		setWindowTitle(tr("Controller Port %1 Macros").arg(pad_port + 1));
+	}
+
 	createWidgets(parent);
 }
 
@@ -448,7 +478,7 @@ void ControllerMacroEditWidget::updateFrequencyText()
 	if (m_frequency == 0)
 		m_ui.frequencyText->setText(tr("Macro will not repeat."));
 	else
-		m_ui.frequencyText->setText(tr("Macro will toggle buttons every %1 frames.").arg(m_frequency));
+		m_ui.frequencyText->setText(tr("Macro will toggle buttons every %n frames.", nullptr, m_frequency));
 }
 
 void ControllerMacroEditWidget::updateBinds()
@@ -998,8 +1028,8 @@ USBDeviceWidget::USBDeviceWidget(QWidget* parent, ControllerSettingsWindow* dial
 	ControllerSettingWidgetBinder::BindWidgetToInputProfileString(
 		m_dialog->getProfileSettingsInterface(), m_ui.deviceType, m_config_section, "Type", "None");
 
-	connect(m_ui.deviceType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &USBDeviceWidget::onTypeChanged);
-	connect(m_ui.deviceSubtype, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &USBDeviceWidget::onSubTypeChanged);
+	connect(m_ui.deviceType, &QComboBox::currentIndexChanged, this, &USBDeviceWidget::onTypeChanged);
+	connect(m_ui.deviceSubtype, &QComboBox::currentIndexChanged, this, &USBDeviceWidget::onSubTypeChanged);
 	connect(m_ui.bindings, &QPushButton::clicked, this, &USBDeviceWidget::onBindingsClicked);
 	connect(m_ui.settings, &QPushButton::clicked, this, &USBDeviceWidget::onSettingsClicked);
 	connect(m_ui.automaticBinding, &QPushButton::clicked, this, &USBDeviceWidget::onAutomaticBindingClicked);
@@ -1152,7 +1182,11 @@ void USBDeviceWidget::onAutomaticBindingClicked()
 	for (const QPair<QString, QString>& dev : m_dialog->getDeviceList())
 	{
 		// we set it as data, because the device list could get invalidated while the menu is up
-		QAction* action = menu.addAction(QStringLiteral("%1 (%2)").arg(dev.first).arg(dev.second));
+		QAction* action;
+		if (dev.first.compare(dev.second, Qt::CaseInsensitive) == 0)
+			action = menu.addAction(dev.first);
+		else
+			action = menu.addAction(QStringLiteral("%1: %2").arg(dev.first).arg(dev.second));
 		action->setData(dev.first);
 		connect(action, &QAction::triggered, this, [this, action]() { doDeviceAutomaticBinding(action->data().toString()); });
 		added = true;
@@ -1441,3 +1475,5 @@ USBBindingWidget* USBBindingWidget::createInstance(
 
 	return widget;
 }
+
+#include "moc_ControllerBindingWidget.cpp"

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -30,10 +30,22 @@ public:
 
 	constexpr static u32 MAX_BP = 0x3fff;
 
+	constexpr static GSVector4 FullSrcRect = GSVector4::cxpr(0.0f, 0.0f, 1.0f, 1.0f);
+
 	constexpr static bool CheckOverlap(const u32 a_bp, const u32 a_bp_end, const u32 b_bp, const u32 b_bp_end) noexcept
 	{
-		const bool valid = a_bp <= a_bp_end && b_bp <= b_bp_end;
-		const bool overlap = a_bp <= b_bp_end && a_bp_end >= b_bp;
+		u32 b_bp_start_synced = b_bp;
+		u32 b_bp_end_synced = b_bp_end;
+
+		// Check for wrapping
+		if (a_bp_end > GS_MAX_BLOCKS && b_bp_end < a_bp)
+		{
+			b_bp_start_synced += GS_MAX_BLOCKS;
+			b_bp_end_synced += GS_MAX_BLOCKS;
+		}
+
+		const bool valid = a_bp <= a_bp_end && b_bp_start_synced <= b_bp_end_synced;
+		const bool overlap = a_bp <= b_bp_end_synced && a_bp_end >= b_bp_start_synced;
 		return valid && overlap;
 	}
 
@@ -44,6 +56,9 @@ public:
 		bool HasX() const { return static_cast<u32>(bits) != 0; }
 		bool HasY() const { return static_cast<u32>(bits >> 32) != 0; }
 		bool HasEither() const { return (bits != 0); }
+
+		void ClearX() { bits &= ~0xFFFFFFFFULL; }
+		void ClearY() { bits &= 0xFFFFFFFFULL; }
 
 		void SetX(s32 min, s32 max) { bits |= (static_cast<u64>(static_cast<u16>(min)) | (static_cast<u64>(static_cast<u16>(max) << 16))); }
 		void SetY(s32 min, s32 max) { bits |= ((static_cast<u64>(static_cast<u16>(min)) << 32) | (static_cast<u64>(static_cast<u16>(max)) << 48)); }
@@ -128,6 +143,7 @@ public:
 		Surface();
 		~Surface();
 
+		bool OverlapsHelper(u32 start_block0, u32 end_block0, u32 bp, u32 bw, u32 psm, const GSVector4i& rect) const;
 	public:
 		GSTexture* m_texture = nullptr;
 		GIFRegTEX0 m_TEX0 = {};
@@ -152,10 +168,10 @@ public:
 
 		/// Returns the end block for the target, but doesn't wrap at 0x3FFF.
 		/// Can be used for overlap tests.
-		u32 UnwrappedEndBlock() const { return (m_end_block + (Wraps() ? MAX_BLOCKS : 0)); }
+		u32 UnwrappedEndBlock() const { return (m_end_block + (Wraps() ? GS_MAX_BLOCKS : 0)); }
 
-		bool Inside(u32 bp, u32 bw, u32 psm, const GSVector4i& rect);
-		bool Overlaps(u32 bp, u32 bw, u32 psm, const GSVector4i& rect);
+		bool Inside(u32 bp, u32 bw, u32 psm, const GSVector4i& rect) const;
+		bool Overlaps(u32 bp, u32 bw, u32 psm, const GSVector4i& rect) const;
 	};
 
 	struct PaletteKey
@@ -206,6 +222,14 @@ public:
 		bool operator()(const PaletteKey& lhs, const PaletteKey& rhs) const;
 	};
 
+	struct TempZAddress
+	{
+		u32 ZBP;
+		int offset;
+		int rt_offset;
+		GSVector4i rect_since;
+	};
+
 	class Target : public Surface
 	{
 	public:
@@ -221,7 +245,7 @@ public:
 		bool m_valid_rgb = false;
 		bool m_rt_alpha_scale = false;
 		bool m_downscaled = false;
-		int m_last_draw = 0;
+		u64 m_last_draw = 0;
 
 		bool m_is_frame = false;
 		bool m_used = false;
@@ -237,8 +261,10 @@ public:
 
 		static Target* Create(GIFRegTEX0 TEX0, int w, int h, float scale, int type, bool clear);
 
-		__fi bool HasValidAlpha() const { return (m_valid_alpha_low | m_valid_alpha_high); }
-		bool HasValidBitsForFormat(u32 psm, bool req_color, bool req_alpha);
+		bool OverlapsValid(u32 bp, u32 bw, u32 psm, const GSVector4i& rect) const;
+
+		__fi bool HasValidAlpha() const { return (m_valid_alpha_low || m_valid_alpha_high); }
+		bool HasValidBitsForFormat(u32 psm, bool req_color, bool req_alpha, bool width_match);
 
 		void ResizeDrawn(const GSVector4i& rect);
 		void UpdateDrawn(const GSVector4i& rect, bool can_resize = true);
@@ -247,6 +273,7 @@ public:
 
 		void ScaleRTAlpha();
 		void UnscaleRTAlpha();
+		void RearrangeTarget(u32 new_bw, bool recycle = true);
 
 		void Update(bool cannot_scale = false);
 
@@ -257,7 +284,7 @@ public:
 		void UpdateValidChannels(u32 psm, u32 fbmsk);
 
 		/// Resizes target texture, DOES NOT RESCALE.
-		bool ResizeTexture(int new_unscaled_width, int new_unscaled_height, bool recycle_old = true);
+		bool ResizeTexture(int new_unscaled_width, int new_unscaled_height, bool recycle_old = true, bool require_new_rect = false, GSVector4i new_rect = GSVector4i::zero(), bool keep_old = false);
 
 	private:
 		void UpdateTextureDebugName();
@@ -279,7 +306,7 @@ public:
 	public:
 		HashCacheEntry* m_from_hash_cache = nullptr;
 		std::shared_ptr<Palette> m_palette_obj;
-		std::unique_ptr<u32[]> m_valid;// each u32 bits map to the 32 blocks of that page
+		std::unique_ptr<u32[]> m_valid; // each u32 bits map to the 32 blocks of that page
 		GSTexture* m_palette = nullptr;
 		GSVector4i m_valid_rect = {};
 		GSVector2i m_lod = {};
@@ -301,7 +328,7 @@ public:
 		HashType m_layer_hash[7] = {};
 		// Keep a GSTextureCache::SourceMap::m_map iterator to allow fast erase
 		// Deliberately not initialized to save cycles.
-		std::array<u16, MAX_PAGES> m_erase_it;
+		std::array<u16, GS_MAX_PAGES> m_erase_it;
 		GSOffset::PageLooper m_pages;
 
 	public:
@@ -328,7 +355,7 @@ public:
 	class PaletteMap
 	{
 	private:
-		static const u16 MAX_SIZE = 65535; // Max size of each map.
+		static const u16 MAX_CACHED_PALETES = 4096; // Max size of each map.
 
 		// Array of 2 maps, the first for 64B palettes and the second for 1024B palettes.
 		// Each map stores the key PaletteKey (clut copy, pal value) pointing to the relevant shared pointer to Palette object.
@@ -349,7 +376,7 @@ public:
 	{
 	public:
 		std::unordered_set<Source*> m_surfaces;
-		std::array<FastList<Source*>, MAX_PAGES> m_map;
+		std::array<FastList<Source*>, GS_MAX_PAGES> m_map;
 
 		void Add(Source* s, const GIFRegTEX0& TEX0);
 		void SwapTexture(GSTexture* old_tex, GSTexture* new_tex);
@@ -387,13 +414,13 @@ public:
 
 	struct SurfaceOffsetKey
 	{
-		std::array<SurfaceOffsetKeyElem, 2> elems;  // A and B elems.
+		std::array<SurfaceOffsetKeyElem, 2> elems; // A and B elems.
 	};
 
 	struct SurfaceOffset
 	{
 		bool is_valid;
-		GSVector4i b2a_offset;  // B to A offset in B coords.
+		GSVector4i b2a_offset; // B to A offset in B coords.
 	};
 
 	struct SurfaceOffsetKeyHash
@@ -427,12 +454,14 @@ protected:
 	std::unordered_map<SurfaceOffsetKey, SurfaceOffset, SurfaceOffsetKeyHash, SurfaceOffsetKeyEqual> m_surface_offset_cache;
 
 	Source* m_temporary_source = nullptr; // invalidated after the draw
+	GSTexture* m_temporary_z = nullptr; // invalidated after the draw
+	TempZAddress m_temporary_z_info;
 
 	std::unique_ptr<GSDownloadTexture> m_color_download_texture;
 	std::unique_ptr<GSDownloadTexture> m_uint16_download_texture;
 	std::unique_ptr<GSDownloadTexture> m_uint32_download_texture;
 
-	Source* CreateSource(const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA, Target* t, bool half_right, int x_offset, int y_offset, const GSVector2i* lod, const GSVector4i* src_range, GSTexture* gpu_clut, SourceRegion region);
+	Source* CreateSource(const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA, const GIFRegCLAMP& CLAMP, Target* t, int x_offset, int y_offset, const GSVector2i* lod, const GSVector4i* src_range, GSTexture* gpu_clut, SourceRegion region, bool force_temporary = false);
 
 	bool PreloadTarget(GIFRegTEX0 TEX0, const GSVector2i& size, const GSVector2i& valid_size, bool is_frame,
 		bool preload, bool preserve_target, const GSVector4i draw_rect, Target* dst, GSTextureCache::Source* src = nullptr);
@@ -448,7 +477,7 @@ protected:
 	bool PrepareDownloadTexture(u32 width, u32 height, GSTexture::Format format, std::unique_ptr<GSDownloadTexture>* tex);
 
 	HashCacheEntry* LookupHashCache(const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA, bool& paltex, const u32* clut, const GSVector2i* lod, SourceRegion region);
-	void RemoveFromHashCache(HashCacheMap::iterator it);
+	HashCacheMap::iterator RemoveFromHashCache(HashCacheMap::iterator it);
 	void AgeHashCache();
 
 	static void PreloadTexture(const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA, SourceRegion region, GSLocalMemory& mem, bool paltex, GSTexture* tex, u32 level, std::pair<u8, u8>* alpha_minmax);
@@ -459,6 +488,20 @@ protected:
 
 	Source* CreateMergedSource(GIFRegTEX0 TEX0, GIFRegTEXA TEXA, SourceRegion region, float scale);
 
+	// Used in target lookup functions to determine new sizes of targets.
+	struct RescaleHelper
+	{
+		RescaleHelper(const GSVector2i& size, float scale);
+		void CalcRescale(const Target* tgt);
+		void SetNewSize(const GSVector2i& new_size, float scale);
+
+		const GSVector2i m_size;
+		float m_scale;
+		GSVector2i m_new_size{};
+		GSVector2i m_new_scaled_size{};
+		GSVector4 m_dRect{};
+		bool m_clear = true;
+	};
 public:
 	GSTextureCache();
 	~GSTextureCache();
@@ -478,24 +521,35 @@ public:
 	static bool FullRectDirty(Target* target, u32 rgba_mask);
 	static bool FullRectDirty(Target* target);
 	bool CanTranslate(u32 bp, u32 bw, u32 spsm, GSVector4i r, u32 dbp, u32 dpsm, u32 dbw);
-	GSVector4i TranslateAlignedRectByPage(u32 tbp, u32 tebp, u32 tbw, u32 tpsm, u32 sbp, u32 spsm, u32 sbw, GSVector4i src_r, bool is_invalidation = false);
+	GSVector4i TranslateAlignedRectByPage(u32 tbp, u32 tebp, u32 tbw, u32 tpsm, GSVector4i t_r, u32 sbp, u32 spsm, u32 sbw, GSVector4i src_r, bool is_invalidation = false);
 	GSVector4i TranslateAlignedRectByPage(Target* t, u32 sbp, u32 spsm, u32 sbw, GSVector4i src_r, bool is_invalidation = false);
 	void DirtyRectByPage(u32 sbp, u32 spsm, u32 sbw, Target* t, GSVector4i src_r);
 	void DirtyRectByPageOld(u32 sbp, u32 spsm, u32 sbw, Target* t, GSVector4i src_r);
 	GSTexture* LookupPaletteSource(u32 CBP, u32 CPSM, u32 CBW, GSVector2i& offset, float* scale, const GSVector2i& size);
 	std::shared_ptr<Palette> LookupPaletteObject(const u32* clut, u16 pal, bool need_gs_texture);
 
-	Source* LookupSource(const bool is_color, const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA, const GIFRegCLAMP& CLAMP, const GSVector4i& r, const GSVector2i* lod, const bool possible_shuffle, const bool linear, const u32 frame_fbp = 0xFFFFFFFF, bool req_color = true, bool req_alpha = true);
-	Source* LookupDepthSource(const bool is_depth, const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA, const GIFRegCLAMP& CLAMP, const GSVector4i& r, const bool possible_shuffle, const bool linear, const u32 frame_fbp = 0xFFFFFFFF, bool req_color = true, bool req_alpha = true, bool palette = false);
+	Source* LookupSource(const bool is_color, const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA, const GIFRegCLAMP& CLAMP, const GSVector4i& r, const GSVector2i* lod, const bool possible_shuffle, const bool linear, const GIFRegFRAME& frame, bool req_color = true, bool req_alpha = true);
+	Source* LookupDepthSource(const bool is_depth, const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA, const GIFRegCLAMP& CLAMP, const GSVector4i& r, const bool possible_shuffle, const bool linear, const GIFRegFRAME& frame, bool req_color = true, bool req_alpha = true, bool palette = false);
 
 	Target* FindTargetOverlap(Target* target, int type, int psm);
-	Target* LookupTarget(GIFRegTEX0 TEX0, const GSVector2i& size, float scale, int type, bool used = true, u32 fbmask = 0,
-						 bool is_frame = false, bool preload = GSConfig.PreloadFrameWithGSData, bool preserve_rgb = true, bool preserve_alpha = true,
-						 const GSVector4i draw_rc = GSVector4i::zero(), bool is_shuffle = false, bool possible_clear = false, bool preserve_scale = false);
-	Target* CreateTarget(GIFRegTEX0 TEX0, const GSVector2i& size, const GSVector2i& valid_size,float scale, int type, bool used = true, u32 fbmask = 0,
-		bool is_frame = false, bool preload = GSConfig.PreloadFrameWithGSData, bool preserve_target = true,
+	void CombineAlignedInsideTargets(Target* target, GSTextureCache::Source* src = nullptr);
+
+private:
+	Target* ProcessTargetAfterLookup(RescaleHelper& rescaler, Target* dst, GIFRegTEX0 TEX0, const GSVector2i& size, int type,
+		bool used, u32 fbmask, bool is_frame, bool preload, bool preserve_rgb = true, bool preserve_alpha = true,
+		const GSVector4i draw_rc = GSVector4i::zero(), bool is_shuffle = false, bool possible_clear = false,
+		bool preserve_scale = false, GSTextureCache::Source* src = nullptr, GSTextureCache::Target* ds = nullptr, int offset = -1);
+
+public:
+	Target* CreateTarget(GIFRegTEX0 TEX0, const GSVector2i& size, const GSVector2i& valid_size, float scale, int type, bool used = true,
+		u32 fbmask = 0, bool is_frame = false, bool preload = GSConfig.PreloadFrameWithGSData, bool preserve_target = true,
 		const GSVector4i draw_rc = GSVector4i::zero(), GSTextureCache::Source* src = nullptr);
+
 	Target* LookupDisplayTarget(GIFRegTEX0 TEX0, const GSVector2i& size, float scale, bool is_feedback);
+
+	Target* LookupDrawTarget(GIFRegTEX0 TEX0, const GSVector2i& size, float scale, int type, bool used = true, u32 fbmask = 0,
+		bool preload = GSConfig.PreloadFrameWithGSData, bool preserve_rgb = true, bool preserve_alpha = true,
+		const GSVector4i draw_rc = GSVector4i::zero(), bool is_shuffle = false, bool possible_clear = false, bool preserve_scale = false, GSTextureCache::Source* src = nullptr, GSTextureCache::Target* ds = nullptr, int offset = -1);
 
 	/// Looks up a target in the cache, and only returns it if the BP/BW match exactly.
 	Target* GetExactTarget(u32 BP, u32 BW, int type, u32 end_bp);
@@ -508,7 +562,7 @@ public:
 	bool HasTargetInHeightCache(u32 bp, u32 fbw, u32 psm, u32 max_age = std::numeric_limits<u32>::max(), bool move_front = true);
 	bool Has32BitTarget(u32 bp);
 
-	void InvalidateContainedTargets(u32 start_bp, u32 end_bp, u32 write_psm = PSMCT32);
+	void InvalidateContainedTargets(u32 start_bp, u32 end_bp, u32 write_psm = PSMCT32, u32 write_bw = 1, u32 fb_mask = 0x00000000, bool ignore_exact = false);
 	void InvalidateVideoMemType(int type, u32 bp, u32 write_psm = PSMCT32, u32 write_fbmsk = 0, bool dirty_only = false);
 	void InvalidateVideoMemSubTarget(GSTextureCache::Target* rt);
 	void InvalidateVideoMem(const GSOffset& off, const GSVector4i& r, bool target = true);
@@ -517,15 +571,15 @@ public:
 	/// Removes any sources which point to the specified target.
 	void InvalidateSourcesFromTarget(const Target* t);
 
-	/// Replaces a source's texture externally. Required for some CRC hacks.
+	/// Removes any sources which point to the same address as a new target.
 	void ReplaceSourceTexture(Source* s, GSTexture* new_texture, float new_scale, const GSVector2i& new_unscaled_size,
 		HashCacheEntry* hc_entry, bool new_texture_is_shared);
 
 	/// Converts single color value to depth using the specified shader expression.
-	static float ConvertColorToDepth(u32 c, ShaderConvert convert);
+	static float ConvertColorToDepth(u32 c, u32 src_bpp, u32 dst_bpp);
 
 	/// Converts single depth value to colour using the specified shader expression.
-	static u32 ConvertDepthToColor(float d, ShaderConvert convert);
+	static u32 ConvertDepthToColor(float d, u32 dst_bpp);
 
 	/// Copies RGB channels from depth target to a color target.
 	bool CopyRGBFromDepthToColor(Target* dst, Target* depth_src);
@@ -551,6 +605,13 @@ public:
 
 	/// Invalidates a temporary source, a partial copy only created from the current RT/DS for the current draw.
 	void InvalidateTemporarySource();
+	void SetTemporaryZ(GSTexture* temp_z);
+	GSTexture* GetTemporaryZ();
+	TempZAddress GetTemporaryZInfo();
+	void SetTemporaryZInfo(u32 address, u32 offset, u32 rt_offset);
+	void SetTemporaryZInfo(TempZAddress address_info);
+	/// Invalidates a temporary Z, a partial copy only created from the current DS for the current draw when Z is not offset but RT is.
+	void InvalidateTemporaryZ();
 
 	/// Injects a texture into the hash cache, by using GSTexture::Swap(), transitively applying to all sources. Ownership of tex is transferred.
 	void InjectHashCacheTexture(const HashCacheKey& key, GSTexture* tex, const std::pair<u8, u8>& alpha_minmax);

@@ -10,6 +10,8 @@ target_sources(pcsx2-qt PRIVATE
 	AboutDialog.cpp
 	AboutDialog.h
 	AboutDialog.ui
+	AsyncDialogs.cpp
+	AsyncDialogs.h
 	AutoUpdaterDialog.cpp
 	AutoUpdaterDialog.h
 	AutoUpdaterDialog.ui
@@ -33,6 +35,9 @@ target_sources(pcsx2-qt PRIVATE
 	SetupWizardDialog.h
 	SetupWizardDialog.ui
 	Themes.cpp
+	ToolbarCustomizationDialog.cpp
+	ToolbarCustomizationDialog.h
+	ToolbarCustomizationDialog.ui
 	Translations.cpp
 	QtHost.cpp
 	QtHost.h
@@ -83,12 +88,15 @@ target_sources(pcsx2-qt PRIVATE
 	Settings/ControllerSettingsWindow.h
 	Settings/ControllerSettingsWindow.ui
 	Settings/ControllerSettingWidgetBinder.h
+	Settings/DebugAnalysisSettingsTab.ui
 	Settings/DebugAnalysisSettingsWidget.cpp
 	Settings/DebugAnalysisSettingsWidget.h
 	Settings/DebugAnalysisSettingsWidget.ui
+	Settings/DebugGSSettingsTab.ui
+	Settings/DebugLoggingSettingsTab.ui
+	Settings/DebugUserInterfaceSettingsTab.ui
 	Settings/DebugSettingsWidget.cpp
 	Settings/DebugSettingsWidget.h
-	Settings/DebugSettingsWidget.ui
 	Settings/EmulationSettingsWidget.cpp
 	Settings/EmulationSettingsWidget.h
 	Settings/EmulationSettingsWidget.ui
@@ -111,9 +119,18 @@ target_sources(pcsx2-qt PRIVATE
 	Settings/GameSummaryWidget.cpp
 	Settings/GameSummaryWidget.h
 	Settings/GameSummaryWidget.ui
+	Settings/GraphicsAdvancedSettingsTab.ui
+	Settings/GraphicsDisplaySettingsTab.ui
+	Settings/GraphicsHardwareFixesSettingsTab.ui
+	Settings/GraphicsHardwareRenderingSettingsTab.ui
+	Settings/GraphicsMediaCaptureSettingsTab.ui
+	Settings/GraphicsPostProcessingSettingsTab.ui
+	Settings/GraphicsSettingsHeader.ui
 	Settings/GraphicsSettingsWidget.cpp
 	Settings/GraphicsSettingsWidget.h
-	Settings/GraphicsSettingsWidget.ui
+	Settings/GraphicsSoftwareRenderingSettingsTab.ui
+	Settings/GraphicsTextureReplacementSettingsTab.ui
+	Settings/GraphicsUpscalingFixesSettingsTab.ui
 	Settings/HotkeySettingsWidget.cpp
 	Settings/HotkeySettingsWidget.h
 	Settings/InputBindingDialog.cpp
@@ -135,6 +152,12 @@ target_sources(pcsx2-qt PRIVATE
 	Settings/MemoryCardSettingsWidget.cpp
 	Settings/MemoryCardSettingsWidget.h
 	Settings/MemoryCardSettingsWidget.ui
+	Settings/OSDSettingsWidget.cpp
+	Settings/OSDSettingsWidget.h
+	Settings/OSDSettingsWidget.ui
+	Settings/OsdFontPickerDialog.cpp
+	Settings/OsdFontPickerDialog.h
+	Settings/OsdFontPickerDialog.ui
 	Settings/DEV9DnsHostDialog.cpp
 	Settings/DEV9DnsHostDialog.h
 	Settings/DEV9DnsHostDialog.ui
@@ -146,6 +169,8 @@ target_sources(pcsx2-qt PRIVATE
 	Settings/HddCreateQt.cpp
 	Settings/HddCreateQt.h
 	Settings/PatchDetailsWidget.ui
+	Settings/SettingsWidget.cpp
+	Settings/SettingsWidget.h
 	Settings/SettingsWindow.cpp
 	Settings/SettingsWindow.h
 	Settings/SettingsWindow.ui
@@ -158,37 +183,73 @@ target_sources(pcsx2-qt PRIVATE
 	Debugger/AnalysisOptionsDialog.cpp
 	Debugger/AnalysisOptionsDialog.h
 	Debugger/AnalysisOptionsDialog.ui
-	Debugger/CpuWidget.cpp
-	Debugger/CpuWidget.h
-	Debugger/CpuWidget.ui
 	Debugger/DebuggerSettingsManager.cpp
 	Debugger/DebuggerSettingsManager.h
+	Debugger/DebuggerEvents.h
+	Debugger/DebuggerView.cpp
+	Debugger/DebuggerView.h
 	Debugger/DebuggerWindow.cpp
 	Debugger/DebuggerWindow.h
 	Debugger/DebuggerWindow.ui
-	Debugger/DisassemblyWidget.cpp
-	Debugger/DisassemblyWidget.h
-	Debugger/DisassemblyWidget.ui
-	Debugger/MemorySearchWidget.cpp
-	Debugger/MemorySearchWidget.h
-	Debugger/MemorySearchWidget.ui
-	Debugger/MemoryViewWidget.cpp
-	Debugger/MemoryViewWidget.h
-	Debugger/MemoryViewWidget.ui
-	Debugger/RegisterWidget.cpp
-	Debugger/RegisterWidget.h
-	Debugger/RegisterWidget.ui
-	Debugger/BreakpointDialog.cpp
-	Debugger/BreakpointDialog.h
-	Debugger/BreakpointDialog.ui
-	Debugger/Models/BreakpointModel.cpp
-	Debugger/Models/BreakpointModel.h
-	Debugger/Models/ThreadModel.cpp
-	Debugger/Models/ThreadModel.h
-	Debugger/Models/StackModel.cpp
-	Debugger/Models/StackModel.h
-	Debugger/Models/SavedAddressesModel.cpp
-	Debugger/Models/SavedAddressesModel.h
+	Debugger/DisassemblyView.cpp
+	Debugger/DisassemblyView.h
+	Debugger/DisassemblyView.ui
+	Debugger/JsonValueWrapper.h
+	Debugger/ModuleModel.cpp
+	Debugger/ModuleModel.h
+	Debugger/ModuleView.cpp
+	Debugger/ModuleView.h
+	Debugger/NavigationHistoryStack.h
+	Debugger/RegisterView.cpp
+	Debugger/RegisterView.h
+	Debugger/RegisterView.ui
+	Debugger/StackModel.cpp
+	Debugger/StackModel.h
+	Debugger/StackView.cpp
+	Debugger/StackView.h
+	Debugger/ThreadModel.cpp
+	Debugger/ThreadModel.h
+	Debugger/ThreadView.cpp
+	Debugger/ThreadView.h
+	Debugger/Breakpoints/BreakpointDialog.cpp
+	Debugger/Breakpoints/BreakpointDialog.h
+	Debugger/Breakpoints/BreakpointDialog.ui
+	Debugger/Breakpoints/BreakpointModel.cpp
+	Debugger/Breakpoints/BreakpointModel.h
+	Debugger/Breakpoints/BreakpointView.cpp
+	Debugger/Breakpoints/BreakpointView.h
+	Debugger/Breakpoints/BreakpointView.ui
+	Debugger/Docking/DockLayout.cpp
+	Debugger/Docking/DockLayout.h
+	Debugger/Docking/DockManager.cpp
+	Debugger/Docking/DockManager.h
+	Debugger/Docking/DockMenuBar.cpp
+	Debugger/Docking/DockMenuBar.h
+	Debugger/Docking/DockTables.cpp
+	Debugger/Docking/DockTables.h
+	Debugger/Docking/DockUtils.cpp
+	Debugger/Docking/DockUtils.h
+	Debugger/Docking/DockViews.cpp
+	Debugger/Docking/DockViews.h
+	Debugger/Docking/DropIndicators.cpp
+	Debugger/Docking/DropIndicators.h
+	Debugger/Docking/LayoutEditorDialog.cpp
+	Debugger/Docking/LayoutEditorDialog.h
+	Debugger/Docking/LayoutEditorDialog.ui
+	Debugger/Docking/NoLayoutsWidget.cpp
+	Debugger/Docking/NoLayoutsWidget.h
+	Debugger/Docking/NoLayoutsWidget.ui
+	Debugger/Memory/MemorySearchView.cpp
+	Debugger/Memory/MemorySearchView.h
+	Debugger/Memory/MemorySearchView.ui
+	Debugger/Memory/MemoryView.cpp
+	Debugger/Memory/MemoryView.h
+	Debugger/Memory/MemoryView.ui
+	Debugger/Memory/SavedAddressesModel.cpp
+	Debugger/Memory/SavedAddressesModel.h
+	Debugger/Memory/SavedAddressesView.cpp
+	Debugger/Memory/SavedAddressesView.h
+	Debugger/Memory/SavedAddressesView.ui
 	Debugger/SymbolTree/NewSymbolDialogs.cpp
 	Debugger/SymbolTree/NewSymbolDialogs.h
 	Debugger/SymbolTree/NewSymbolDialog.ui
@@ -200,9 +261,9 @@ target_sources(pcsx2-qt PRIVATE
 	Debugger/SymbolTree/SymbolTreeNode.h
 	Debugger/SymbolTree/SymbolTreeDelegates.cpp
 	Debugger/SymbolTree/SymbolTreeDelegates.h
-	Debugger/SymbolTree/SymbolTreeWidgets.cpp
-	Debugger/SymbolTree/SymbolTreeWidgets.h
-	Debugger/SymbolTree/SymbolTreeWidget.ui
+	Debugger/SymbolTree/SymbolTreeViews.cpp
+	Debugger/SymbolTree/SymbolTreeViews.h
+	Debugger/SymbolTree/SymbolTreeView.ui
 	Debugger/SymbolTree/TypeString.cpp
 	Debugger/SymbolTree/TypeString.h
 	Tools/InputRecording/NewInputRecordingDlg.cpp
@@ -214,7 +275,15 @@ target_sources(pcsx2-qt PRIVATE
 	resources/resources.qrc
 )
 
-file(GLOB TS_FILES ${CMAKE_CURRENT_SOURCE_DIR}/Translations/*.ts)
+if (NOT APPLE)
+    target_sources(pcsx2-qt PRIVATE
+        ShortcutCreationDialog.cpp
+        ShortcutCreationDialog.h
+        ShortcutCreationDialog.ui
+    )
+endif()
+
+file(GLOB TS_FILES ${CMAKE_CURRENT_SOURCE_DIR}/Translations/pcsx2-qt_*-*.ts)
 
 target_precompile_headers(pcsx2-qt PRIVATE PrecompiledHeader.h)
 set_source_files_properties(PrecompiledHeader.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
@@ -232,7 +301,16 @@ target_link_libraries(pcsx2-qt PRIVATE
 	Qt6::Core
 	Qt6::Gui
 	Qt6::Widgets
+	KDAB::kddockwidgets
 )
+
+if(NOT WIN32 AND NOT APPLE)
+	target_link_libraries(pcsx2-qt PRIVATE Qt6::GuiPrivate)
+endif()
+
+if(UNIX AND NOT APPLE)
+	target_link_libraries(pcsx2-qt PRIVATE Fontconfig::Fontconfig)
+endif()
 
 # Our Qt builds may have exceptions on, so force them off.
 target_compile_definitions(pcsx2-qt PRIVATE QT_NO_EXCEPTIONS)
@@ -261,6 +339,7 @@ elseif(APPLE)
 		set_source_files_properties(${QM_FILE} PROPERTIES MACOSX_PACKAGE_LOCATION Resources/translations/)
 	endforeach()
 	copy_base_translations(pcsx2-qt)
+	extract_translation_from_ts(Translations/pcsx2-qt_en.ts source PermissionsDialogCamera PCSX2_CAMERA_USAGE_DESCRIPTION)
 	extract_translation_from_ts(Translations/pcsx2-qt_en.ts source PermissionsDialogMicrophone PCSX2_MICROPHONE_USAGE_DESCRIPTION)
 else()
 	qt_add_lrelease(pcsx2-qt TS_FILES ${TS_FILES} QM_FILES_OUTPUT_VARIABLE QM_FILES)

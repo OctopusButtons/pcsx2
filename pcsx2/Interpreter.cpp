@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -24,7 +24,7 @@ static bool intExitExecution = false;
 static fastjmp_buf intJmpBuf;
 static u32 intLastBranchTo;
 
-static void intEventTest();
+void intEventTest();
 
 void intUpdateCPUCycles()
 {
@@ -67,12 +67,18 @@ void intBreakpoint(bool memcheck)
 {
 	const u32 pc = cpuRegs.pc;
  	if (CBreakPoints::CheckSkipFirst(BREAKPOINT_EE, pc) != 0)
+	{
+		CBreakPoints::ClearSkipFirst(BREAKPOINT_EE);
 		return;
+	}
 
 	if (!memcheck)
 	{
 		auto cond = CBreakPoints::GetBreakPointCondition(BREAKPOINT_EE, pc);
 		if (cond && !cond->Evaluate())
+			return;
+
+		if(!CBreakPoints::HandleBreakpointHit(BREAKPOINT_EE, pc))
 			return;
 	}
 
@@ -84,7 +90,7 @@ void intBreakpoint(bool memcheck)
 void intMemcheck(u32 op, u32 bits, bool store)
 {
 	// compute accessed address
-	u32 start = cpuRegs.GPR.r[(op >> 21) & 0x1F].UD[0];
+	u32 start = cpuRegs.GPR.r[(op >> 21) & 0x1F].UL[0];
 	if (static_cast<s16>(op) != 0)
 		start += static_cast<s16>(op);
 	if (bits == 128)
@@ -93,10 +99,10 @@ void intMemcheck(u32 op, u32 bits, bool store)
 	start = standardizeBreakpointAddress(start);
 	const u32 end = start + bits/8;
 
-	auto checks = CBreakPoints::GetMemChecks(BREAKPOINT_EE);
+	const auto checks = CBreakPoints::GetMemChecks(BREAKPOINT_EE);
 	for (size_t i = 0; i < checks.size(); i++)
 	{
-		auto& check = checks[i];
+		const auto& check = checks[i];
 
 		if (check.result == 0)
 			continue;
@@ -161,6 +167,8 @@ static void execI()
 		intBreakpoint(false);
 
 	intCheckMemcheck();
+
+	CBreakPoints::CommitClearSkipFirst(BREAKPOINT_EE);
 #endif
 
 	const u32 pc = cpuRegs.pc;
@@ -190,7 +198,7 @@ static void execI()
 #if 0
 	static long int print_me = 0;
 	// Based on cycle
-	// if( cpuRegs.cycle > 0x4f24d714 )
+	// if ( cpuRegs.cycle > 0x4f24d714 )
 	// Or dump from a particular PC (useful to debug handler/syscall)
 	if (pc == 0x80000000)
 	{
@@ -246,7 +254,7 @@ static __fi void _doBranch_shared(u32 tar)
 
 				if (can_skip)
 				{
-					if (static_cast<s32>(cpuRegs.nextEventCycle - cpuRegs.cycle) > 0)
+					if (static_cast<s64>(cpuRegs.nextEventCycle - cpuRegs.cycle) > 0)
 						cpuRegs.cycle = cpuRegs.nextEventCycle;
 					else
 						cpuRegs.nextEventCycle = cpuRegs.cycle;
@@ -548,7 +556,7 @@ static void intReset()
 	branch2 = 0;
 }
 
-static void intEventTest()
+void intEventTest()
 {
 	// Perform counters, ints, and IOP updates:
 	_cpuEventTest_Shared();

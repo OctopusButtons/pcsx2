@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #define A_GPU 1
@@ -40,6 +40,19 @@ A_STATIC void CasInputH(inoutAH2 r, inoutAH2 g, inoutAH2 b){}
 #include "GSMTLShaderCommon.h"
 
 constant bool CAS_SHARPEN_ONLY [[function_constant(GSMTLConstantIndex_CAS_SHARPEN_ONLY)]];
+
+fragment float4 CASPS(
+	float4 pos [[position]],
+	texture2d<float, access::read> input [[texture(GSMTLTextureIndexNonHW)]],
+	constant GSMTLCASPSUniform& cb [[buffer(GSMTLBufferIndexUniforms)]])
+{
+	const CASTextureF tex{input, AU2(cb.srcOffset)};
+	const AU4 const0 = cb.const0;
+	const AU4 const1 = cb.const1;
+	float r, g, b;
+	CasFilter(tex, r, g, b, uint2(pos.xy), const0, const1, CAS_SHARPEN_ONLY);
+	return float4(r, g, b, 1);
+}
 
 kernel void CASFloat(
 	uint2 localID [[thread_position_in_threadgroup]],

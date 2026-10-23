@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "CDVD/CDVD.h"
@@ -16,6 +16,7 @@
 #include "common/HeterogeneousContainers.h"
 #include "common/Path.h"
 #include "common/ProgressCallback.h"
+#include "common/ScopedGuard.h"
 #include "common/StringUtil.h"
 
 #include <algorithm>
@@ -64,7 +65,8 @@ namespace GameList
 	static bool GetGameListEntryFromCache(const std::string& path, GameList::Entry* entry);
 	static void ScanDirectory(const char* path, bool recursive, bool only_cache, const std::vector<std::string>& excluded_paths,
 		const PlayedTimeMap& played_time_map, const INISettingsInterface& custom_attributes_ini, ProgressCallback* progress);
-	static bool AddFileFromCache(const std::string& path, std::time_t timestamp, const PlayedTimeMap& played_time_map);
+	static bool AddFileFromCache(const std::string& path, std::time_t timestamp, const PlayedTimeMap& played_time_map,
+		const INISettingsInterface& custom_attributes_ini);
 	static bool ScanFile(std::string path, std::time_t timestamp, std::unique_lock<std::recursive_mutex>& lock,
 		const PlayedTimeMap& played_time_map, const INISettingsInterface& custom_attributes_ini);
 
@@ -84,6 +86,8 @@ namespace GameList
 		const std::string& path, const std::string& serial, std::time_t last_time, std::time_t add_time);
 
 	static std::string GetCustomPropertiesFile();
+
+	static std::string EncodeIniKey(const std::string_view& input);
 } // namespace GameList
 
 static std::vector<GameList::Entry> s_entries;
@@ -91,42 +95,136 @@ static std::recursive_mutex s_mutex;
 static GameList::CacheMap s_cache_map;
 static std::FILE* s_cache_write_stream = nullptr;
 
-const char* GameList::EntryTypeToString(EntryType type)
+const char* GameList::EntryTypeToString(EntryType type, bool translate)
 {
-	static std::array<const char*, static_cast<int>(EntryType::Count)> names = {{"PS2Disc", "PS1Disc", "ELF"}};
-	return names[static_cast<int>(type)];
+	static constexpr std::array<const char*, static_cast<int>(EntryType::Count)> names = {
+		TRANSLATE_NOOP("GameList", "PS2 Disc"),
+		TRANSLATE_NOOP("GameList", "PS1 Disc"),
+		TRANSLATE_NOOP("GameList", "ELF"),
+		TRANSLATE_NOOP("GameList", "Invalid"),
+	};
+
+	const char* name = names.at(static_cast<int>(type));
+	if (translate)
+		name = TRANSLATE("GameList", name);
+
+	return name;
 }
 
-const char* GameList::EntryTypeToDisplayString(EntryType type)
+const char* GameList::RegionToString(Region region, bool translate)
 {
-	static std::array<const char*, static_cast<int>(EntryType::Count)> names = {{TRANSLATE("GameList", "PS2 Disc"), TRANSLATE("GameList", "PS1 Disc"), TRANSLATE("GameList", "ELF")}};
-	return names[static_cast<int>(type)];
+	static constexpr std::array<const char*, static_cast<int>(Region::Count)> names = {
+		TRANSLATE_NOOP("GameList", "NTSC-B"),
+		TRANSLATE_NOOP("GameList", "NTSC-C"),
+		TRANSLATE_NOOP("GameList", "NTSC-HK"),
+		TRANSLATE_NOOP("GameList", "NTSC-J"),
+		TRANSLATE_NOOP("GameList", "NTSC-K"),
+		TRANSLATE_NOOP("GameList", "NTSC-T"),
+		TRANSLATE_NOOP("GameList", "NTSC-U"),
+		TRANSLATE_NOOP("GameList", "Other"),
+		TRANSLATE_NOOP("GameList", "PAL-A"),
+		TRANSLATE_NOOP("GameList", "PAL-AF"),
+		TRANSLATE_NOOP("GameList", "PAL-AU"),
+		TRANSLATE_NOOP("GameList", "PAL-BE"),
+		TRANSLATE_NOOP("GameList", "PAL-E"),
+		TRANSLATE_NOOP("GameList", "PAL-F"),
+		TRANSLATE_NOOP("GameList", "PAL-FI"),
+		TRANSLATE_NOOP("GameList", "PAL-G"),
+		TRANSLATE_NOOP("GameList", "PAL-GR"),
+		TRANSLATE_NOOP("GameList", "PAL-I"),
+		TRANSLATE_NOOP("GameList", "PAL-IN"),
+		TRANSLATE_NOOP("GameList", "PAL-M"),
+		TRANSLATE_NOOP("GameList", "PAL-NL"),
+		TRANSLATE_NOOP("GameList", "PAL-NO"),
+		TRANSLATE_NOOP("GameList", "PAL-P"),
+		TRANSLATE_NOOP("GameList", "PAL-PL"),
+		TRANSLATE_NOOP("GameList", "PAL-R"),
+		TRANSLATE_NOOP("GameList", "PAL-S"),
+		TRANSLATE_NOOP("GameList", "PAL-SC"),
+		TRANSLATE_NOOP("GameList", "PAL-SW"),
+		TRANSLATE_NOOP("GameList", "PAL-SWI"),
+		TRANSLATE_NOOP("GameList", "PAL-UK"),
+	};
+
+	const char* name = names.at(static_cast<int>(region));
+	if (translate)
+		name = TRANSLATE("GameList", name);
+
+	return name;
 }
 
-const char* GameList::RegionToString(Region region)
+const char* GameList::RegionToFlagFilename(Region region)
 {
-	static std::array<const char*, static_cast<int>(Region::Count)> names = {{"NTSC-B", "NTSC-C", "NTSC-HK", "NTSC-J", "NTSC-K", "NTSC-T",
-		"NTSC-U", TRANSLATE("GameList", "Other"), "PAL-A", "PAL-AF", "PAL-AU", "PAL-BE", "PAL-E", "PAL-F", "PAL-FI", "PAL-G", "PAL-GR", "PAL-I", "PAL-IN", "PAL-M",
-		"PAL-NL", "PAL-NO", "PAL-P", "PAL-PL", "PAL-R", "PAL-S", "PAL-SC", "PAL-SW", "PAL-SWI", "PAL-UK"}};
+	static constexpr std::array<const char*, static_cast<int>(Region::Count)> flag_names = {
+		"br",  // NTSC-B
+		"cn",  // NTSC-C
+		"hk",  // NTSC-HK
+		"jp",  // NTSC-J
+		"kr",  // NTSC-K
+		"tw",  // NTSC-T
+		"us",  // NTSC-U
+		"Other",  // Other
+		"au",  // PAL-A
+		"za",  // PAL-AF
+		"at",  // PAL-AU
+		"be",  // PAL-BE
+		"eu",  // PAL-E
+		"fr",  // PAL-F
+		"fi",  // PAL-FI
+		"de",  // PAL-G
+		"gr",  // PAL-GR
+		"it",  // PAL-I
+		"in",  // PAL-IN
+		"eu",  // PAL-M
+		"nl",  // PAL-NL
+		"no",  // PAL-NO
+		"pt",  // PAL-P
+		"pl",  // PAL-PL
+		"ru",  // PAL-R
+		"es",  // PAL-S
+		"scn",  // PAL-SC
+		"se",  // PAL-SW
+		"ch",  // PAL-SWI
+		"gb",  // PAL-UK
+	};
 
-	return names[static_cast<int>(region)];
+	return flag_names.at(static_cast<int>(region));
 }
 
-const char* GameList::EntryCompatibilityRatingToString(CompatibilityRating rating)
+const char* GameList::EntryCompatibilityRatingToString(CompatibilityRating rating, bool translate)
 {
-	// clang-format off
+	const char* name = "";
 	switch (rating)
 	{
-		case CompatibilityRating::Unknown:  return TRANSLATE("GameList", "Unknown");
-		case CompatibilityRating::Nothing:  return TRANSLATE("GameList", "Nothing");
-		case CompatibilityRating::Intro:    return TRANSLATE("GameList", "Intro");
-		case CompatibilityRating::Menu:     return TRANSLATE("GameList", "Menu");
-		case CompatibilityRating::InGame:   return TRANSLATE("GameList", "In-Game");
-		case CompatibilityRating::Playable: return TRANSLATE("GameList", "Playable");
-		case CompatibilityRating::Perfect:  return TRANSLATE("GameList", "Perfect");
-		default: return "";
+		case CompatibilityRating::Unknown:
+			name = TRANSLATE_NOOP("GameList", "Unknown");
+			break;
+		case CompatibilityRating::Nothing:
+			name = TRANSLATE_NOOP("GameList", "Nothing");
+			break;
+		case CompatibilityRating::Intro:
+			name = TRANSLATE_NOOP("GameList", "Intro");
+			break;
+		case CompatibilityRating::Menu:
+			name = TRANSLATE_NOOP("GameList", "Menu");
+			break;
+		case CompatibilityRating::InGame:
+			name = TRANSLATE_NOOP("GameList", "In-Game");
+			break;
+		case CompatibilityRating::Playable:
+			name = TRANSLATE_NOOP("GameList", "Playable");
+			break;
+		case CompatibilityRating::Perfect:
+			name = TRANSLATE_NOOP("GameList", "Perfect");
+			break;
+		default:
+			return "";
 	}
-	// clang-format on
+
+	if (translate)
+		name = TRANSLATE("GameList", name);
+
+	return name;
 }
 
 bool GameList::IsScannableFilename(const std::string_view path)
@@ -170,7 +268,7 @@ bool GameList::GetIsoSerialAndCRC(const std::string& path, s32* disc_type, std::
 
 	// TODO: we could include the version in the game list?
 	*disc_type = DoCDVDdetectDiskType();
-	cdvdGetDiscInfo(serial, nullptr, nullptr, crc, nullptr);
+	cdvdGetDiscInfo(serial, nullptr, nullptr, nullptr, crc, nullptr);
 	DoCDVDclose();
 	return true;
 }
@@ -591,17 +689,19 @@ void GameList::ScanDirectory(const char* path, bool recursive, bool only_cache, 
 	Console.WriteLn("Scanning %s%s", path, recursive ? " (recursively)" : "");
 
 	progress->PushState();
-	progress->SetStatusText(fmt::format(
-		recursive ? TRANSLATE_FS("GameList", "Scanning directory {} (recursively)...") :
-					TRANSLATE_FS("GameList", "Scanning directory {}..."),
-		path)
-								.c_str());
+
+	if (recursive)
+		progress->SetStatusText(
+			fmt::format(TRANSLATE_FS("GameList", "Scanning directory {} (recursively)..."), path).c_str());
+	else
+		progress->SetStatusText(
+			fmt::format(TRANSLATE_FS("GameList", "Scanning directory {}..."), path).c_str());
 
 	FileSystem::FindResultsArray files;
 	FileSystem::FindFiles(path, "*",
 		recursive ? (FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES | FILESYSTEM_FIND_RECURSIVE) :
 					(FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES),
-		&files);
+		&files, progress);
 
 	u32 files_scanned = 0;
 	progress->SetProgressRange(static_cast<u32>(files.size()));
@@ -617,13 +717,14 @@ void GameList::ScanDirectory(const char* path, bool recursive, bool only_cache, 
 		}
 
 		std::unique_lock lock(s_mutex);
-		if (GetEntryForPath(ffd.FileName.c_str()) || AddFileFromCache(ffd.FileName, ffd.ModificationTime, played_time_map) || only_cache)
+		if (GetEntryForPath(ffd.FileName.c_str()) ||
+			AddFileFromCache(ffd.FileName, ffd.ModificationTime, played_time_map, custom_attributes_ini) || only_cache)
 		{
 			continue;
 		}
 
 		const std::string_view filename = Path::GetFileName(ffd.FileName);
-		progress->SetStatusText(fmt::format(TRANSLATE_FS("GameList","Scanning {}..."), filename.data()).c_str());
+		progress->SetStatusText(fmt::format(TRANSLATE_FS("GameList", "Scanning {}..."), filename.data()).c_str());
 		ScanFile(std::move(ffd.FileName), ffd.ModificationTime, lock, played_time_map, custom_attributes_ini);
 		progress->SetProgressValue(files_scanned);
 	}
@@ -632,7 +733,8 @@ void GameList::ScanDirectory(const char* path, bool recursive, bool only_cache, 
 	progress->PopState();
 }
 
-bool GameList::AddFileFromCache(const std::string& path, std::time_t timestamp, const PlayedTimeMap& played_time_map)
+bool GameList::AddFileFromCache(const std::string& path, std::time_t timestamp, const PlayedTimeMap& played_time_map,
+	const INISettingsInterface& custom_attributes_ini)
 {
 	Entry entry;
 	if (!GetGameListEntryFromCache(path, &entry) || entry.last_modified_time != timestamp)
@@ -648,6 +750,7 @@ bool GameList::AddFileFromCache(const std::string& path, std::time_t timestamp, 
 		entry.last_played_time = iter->second.last_played_time;
 		entry.total_played_time = iter->second.total_played_time;
 	}
+	entry.is_favorite = custom_attributes_ini.GetBoolValue(EncodeIniKey(entry.path).c_str(), "Favorite", false);
 
 	s_entries.push_back(std::move(entry));
 	return true;
@@ -687,12 +790,12 @@ bool GameList::ScanFile(std::string path, std::time_t timestamp, std::unique_loc
 		entry.total_played_time = iter->second.total_played_time;
 	}
 
-	auto custom_title = custom_attributes_ini.GetOptionalStringValue(entry.path.c_str(), "Title");
+	auto custom_title = custom_attributes_ini.GetOptionalStringValue(EncodeIniKey(entry.path).c_str(), "Title");
 	if (custom_title)
 	{
 		entry.title = std::move(custom_title.value());
 	}
-	const auto custom_region = custom_attributes_ini.GetOptionalIntValue(entry.path.c_str(), "Region");
+	const auto custom_region = custom_attributes_ini.GetOptionalIntValue(EncodeIniKey(entry.path).c_str(), "Region");
 	if (custom_region)
 	{
 		const int custom_region_value = custom_region.value();
@@ -701,6 +804,7 @@ bool GameList::ScanFile(std::string path, std::time_t timestamp, std::unique_loc
 			entry.region = static_cast<Region>(custom_region_value);
 		}
 	}
+	entry.is_favorite = custom_attributes_ini.GetBoolValue(EncodeIniKey(entry.path).c_str(), "Favorite", false);
 
 	lock.lock();
 
@@ -767,6 +871,15 @@ void GameList::Refresh(bool invalidate_cache, bool only_cache, ProgressCallback*
 {
 	if (!progress)
 		progress = ProgressCallback::NullProgressCallback;
+
+	Error cdvd_lock_error;
+	if (!cdvdLock(&cdvd_lock_error))
+	{
+		progress->DisplayError(cdvd_lock_error.GetDescription().c_str());
+		return;
+	}
+
+	ScopedGuard unlock_cdvd = &cdvdUnlock;
 
 	if (invalidate_cache)
 		DeleteCacheFile();
@@ -1107,16 +1220,22 @@ std::string GameList::FormatTimestamp(std::time_t timestamp)
 		}
 		else
 		{
+#ifdef _WIN32
+			wchar_t buf[128];
+			std::wcsftime(buf, std::size(buf), L"%x", &ttime);
+			ret = StringUtil::WideStringToUTF8String(buf);
+#else
 			char buf[128];
 			std::strftime(buf, std::size(buf), "%x", &ttime);
 			ret.assign(buf);
+#endif
 		}
 	}
 
 	return ret;
 }
 
-std::string GameList::FormatTimespan(std::time_t timespan, bool long_format)
+std::string GameList::FormatTimespan(const std::time_t timespan, const bool long_format)
 {
 	const u32 hours = static_cast<u32>(timespan / 3600);
 	const u32 minutes = static_cast<u32>((timespan % 3600) / 60);
@@ -1140,8 +1259,10 @@ std::string GameList::FormatTimespan(std::time_t timespan, bool long_format)
 	{
 		if (hours > 0)
 			ret.assign(TRANSLATE_PLURAL_STR("GameList", "%n hours", "", hours));
-		else
+		else if (minutes > 0)
 			ret.assign(TRANSLATE_PLURAL_STR("GameList", "%n minutes", "", minutes));
+		else
+			ret.assign(TRANSLATE_PLURAL_STR("GameList", "%n seconds", "", seconds));
 	}
 
 	return ret;
@@ -1157,22 +1278,22 @@ std::string GameList::GetCoverImagePathForEntry(const Entry* entry)
 	for (const char* extension : extensions)
 	{
 
-		// Prioritize lookup by serial (Most specific)
-		if (!entry->serial.empty())
-		{
-			const std::string cover_filename(entry->serial + extension);
-			cover_path = Path::Combine(EmuFolders::Covers, cover_filename);
-			if (FileSystem::FileExists(cover_path.c_str()))
-				return cover_path;
-		}
-
-		// Try file title (for modded games or specific like above)
+		// Prioritize file title since users can change these (e.g. for modded games)
 		const std::string_view file_title(Path::GetFileTitle(entry->path));
 		if (!file_title.empty() && entry->title != file_title)
 		{
 			std::string cover_filename = fmt::format("{}{}", file_title, extension);
 			Path::SanitizeFileName(&cover_filename);
 
+			cover_path = Path::Combine(EmuFolders::Covers, cover_filename);
+			if (FileSystem::FileExists(cover_path.c_str()))
+				return cover_path;
+		}
+
+		// Lookup by serial (most specific)
+		if (!entry->serial.empty())
+		{
+			const std::string cover_filename(entry->serial + extension);
 			cover_path = Path::Combine(EmuFolders::Covers, cover_filename);
 			if (FileSystem::FileExists(cover_path.c_str()))
 				return cover_path;
@@ -1247,6 +1368,12 @@ bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, boo
 		return false;
 	}
 
+	if (!FileSystem::CreateDirectoryPath(EmuFolders::Covers.c_str(), false))
+	{
+		progress->DisplayError(fmt::format("Failed to create covers directory: {}", EmuFolders::Covers).c_str());
+		return false;
+	}
+
 	std::vector<std::pair<std::string, std::string>> download_urls;
 	{
 		std::unique_lock lock(s_mutex);
@@ -1301,7 +1428,7 @@ bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, boo
 				continue;
 			}
 
-			progress->SetStatusText(fmt::format(TRANSLATE_FS("GameList","Downloading cover for {0} [{1}]..."), entry->title, entry->serial).c_str());
+			progress->SetStatusText(fmt::format(TRANSLATE_FS("GameList", "Downloading cover for {0} [{1}]..."), entry->title, entry->serial).c_str());
 		}
 
 		// we could actually do a few in parallel here...
@@ -1356,8 +1483,8 @@ void GameList::CheckCustomAttributesForPath(const std::string& path, bool& has_c
 	INISettingsInterface names(GetCustomPropertiesFile());
 	if (names.Load())
 	{
-		has_custom_title = names.ContainsValue(path.c_str(), "Title");
-		has_custom_region = names.ContainsValue(path.c_str(), "Region");
+		has_custom_title = names.ContainsValue(EncodeIniKey(path).c_str(), "Title");
+		has_custom_region = names.ContainsValue(EncodeIniKey(path).c_str(), "Region");
 	}
 }
 
@@ -1368,11 +1495,11 @@ void GameList::SaveCustomTitleForPath(const std::string& path, const std::string
 
 	if (!custom_title.empty())
 	{
-		names.SetStringValue(path.c_str(), "Title", custom_title.c_str());
+		names.SetStringValue(EncodeIniKey(path).c_str(), "Title", custom_title.c_str());
 	}
 	else
 	{
-		names.DeleteValue(path.c_str(), "Title");
+		names.DeleteValue(EncodeIniKey(path).c_str(), "Title");
 	}
 
 	if (names.Save())
@@ -1389,11 +1516,11 @@ void GameList::SaveCustomRegionForPath(const std::string& path, int custom_regio
 
 	if (custom_region >= 0)
 	{
-		names.SetIntValue(path.c_str(), "Region", custom_region);
+		names.SetIntValue(EncodeIniKey(path).c_str(), "Region", custom_region);
 	}
 	else
 	{
-		names.DeleteValue(path.c_str(), "Region");
+		names.DeleteValue(EncodeIniKey(path).c_str(), "Region");
 	}
 
 	if (names.Save())
@@ -1403,16 +1530,61 @@ void GameList::SaveCustomRegionForPath(const std::string& path, int custom_regio
 	}
 }
 
+void GameList::SaveFavoriteForPath(const std::string& path, bool favorite)
+{
+	INISettingsInterface custom_attributes_ini(GetCustomPropertiesFile());
+	custom_attributes_ini.Load();
+	const std::string key(EncodeIniKey(path));
+	if (favorite)
+		custom_attributes_ini.SetBoolValue(key.c_str(), "Favorite", true);
+	else
+		custom_attributes_ini.DeleteValue(key.c_str(), "Favorite");
+
+	if (!custom_attributes_ini.Save())
+		return;
+
+	{
+		std::unique_lock lock(s_mutex);
+		for (Entry& entry : s_entries)
+		{
+			if (entry.path == path)
+			{
+				entry.is_favorite = favorite;
+				break;
+			}
+		}
+	}
+	Host::OnGameListFavoriteChanged(path);
+}
+
 std::string GameList::GetCustomTitleForPath(const std::string& path)
 {
 	std::string ret;
 
 	std::unique_lock lock(s_mutex);
-	const GameList::Entry* entry = GetEntryForPath(path.c_str());
+	const GameList::Entry* entry = GetEntryForPath(EncodeIniKey(path).c_str());
 	if (entry)
 	{
 		ret = entry->title;
 	}
 
 	return ret;
+}
+
+static std::string GameList::EncodeIniKey(const std::string_view& input)
+{
+	std::string out;
+	out.reserve(input.size());
+
+	for (char c : input)
+	{
+		if (c == '[')
+			out += "{{";
+		else if (c == ']')
+			out += "}}";
+		else
+			out += c;
+	}
+
+	return out;
 }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -247,7 +247,7 @@ void mVUendProgram(mV, microFlagCycles* mFC, int isEbit)
 			xAND(ptr32[&VU0.VI[REG_VPU_STAT].UL], (isVU1 ? ~0x100 : ~0x001)); // VBS0/VBS1 flag
 		}
 	}
-	else if(isEbit)
+	else if (isEbit)
 	{
 		if (EmuConfig.Gamefixes.VUSyncHack || EmuConfig.Gamefixes.FullVU0SyncHack)
 			xMOV(ptr32[&mVU.regs().nextBlockCycles], 0);

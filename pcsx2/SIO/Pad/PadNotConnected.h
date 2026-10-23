@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -17,6 +17,7 @@ public:
 	void SetRawAnalogs(const std::tuple<u8, u8> left, const std::tuple<u8, u8> right) override;
 	void SetRawPressureButton(u32 index, const std::tuple<bool, u8> value) override;
 	void SetAxisScale(float deadzone, float scale) override;
+	void SetDiagonalScaleCorrection(bool enabled) override;
 	float GetVibrationScale(u32 motor) const override;
 	void SetVibrationScale(u32 motor, float scale) override;
 	float GetPressureModifier() const override;
@@ -30,6 +31,8 @@ public:
 	std::tuple<u8, u8> GetRawRightAnalog() const override;
 	u32 GetButtons() const override;
 	u8 GetPressure(u32 index) const override;
+	bool IsAnalogLightEnabled() const override;
+	bool IsAnalogLocked() const override;
 
 	u8 SendCommandByte(u8 commandByte) override;
 

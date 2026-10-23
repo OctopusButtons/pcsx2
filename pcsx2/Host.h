@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -56,18 +56,27 @@ namespace Host
 	void ClearOSDMessages();
 
 	/// Displays an asynchronous error on the UI thread, i.e. doesn't block the caller.
+	void ReportInfoAsync(const std::string_view title, const std::string_view message);
+	void ReportFormattedInfoAsync(const std::string_view title, const char* format, ...);
+
+	/// Displays an asynchronous error on the UI thread, i.e. doesn't block the caller.
 	void ReportErrorAsync(const std::string_view title, const std::string_view message);
 	void ReportFormattedErrorAsync(const std::string_view title, const char* format, ...);
 
-	/// Displays a synchronous confirmation on the UI thread, i.e. blocks the caller.
-	bool ConfirmMessage(const std::string_view title, const std::string_view message);
-	bool ConfirmFormattedMessage(const std::string_view title, const char* format, ...);
+	/// Sets batch mode (exit after game shutdown).
+	bool InBatchMode();
+
+	/// Sets NoGUI mode (implys batch mode, does not display main window, exits on shutdown).
+	bool InNoGUIMode();
 
 	/// Opens a URL, using the default application.
 	void OpenURL(const std::string_view url);
 
 	/// Copies the provided text to the host's clipboard, if present.
 	bool CopyTextToClipboard(const std::string_view text);
+
+	/// Returns the current text from the host's clipboard, if present.
+	std::string GetTextFromClipboard();
 
 	/// Requests settings reset. Can be called from any thread, will call back and apply on the CPU thread.
 	bool RequestResetSettings(bool folders, bool core, bool controllers, bool hotkeys, bool ui);
@@ -78,11 +87,17 @@ namespace Host
 	/// Safely executes a function on the VM thread.
 	void RunOnCPUThread(std::function<void()> function, bool block = false);
 
+	/// Safely executes a function on the GS thread.
+	void RunOnGSThread(std::function<void()> function);
+
 	/// Asynchronously starts refreshing the game list.
 	void RefreshGameListAsync(bool invalidate_cache);
 
 	/// Cancels game list refresh, if there is one in progress.
 	void CancelGameListRefresh();
+
+	/// Notifies the host when a favorite changes. May be called from any thread.
+	void OnGameListFavoriteChanged(const std::string& path);
 
 	/// Requests shut down of the current virtual machine.
 	void RequestVMShutdown(bool allow_confirm, bool allow_save_state, bool default_save_state);
@@ -128,6 +143,8 @@ namespace Host
 
 	/// Direct access to settings interface. Must hold the lock when calling GetSettingsInterface() and while using it.
 	std::unique_lock<std::mutex> GetSettingsLock();
+	/// Ditto for secrets file.
+	std::unique_lock<std::mutex> GetSecretsSettingsLock();
 	SettingsInterface* GetSettingsInterface();
 
 	/// Sets host-specific default settings.
@@ -136,10 +153,16 @@ namespace Host
 	/// Creates a progress callback that displays in the host.
 	std::unique_ptr<ProgressCallback> CreateHostProgressCallback();
 
+	/// Compare strings in the locale of the current UI language from any thread.  Prefer the QtHost version if you can use it.
+	int LocaleSensitiveCompare(std::string_view lhs, std::string_view rhs);
+
 	namespace Internal
 	{
 		/// Retrieves the base settings layer. Must call with lock held.
 		SettingsInterface* GetBaseSettingsLayer();
+
+		/// Retrieves the base settings layer. Must call with lock held.
+		SettingsInterface* GetSecretsSettingsLayer();
 
 		/// Retrieves the game settings layer, if present. Must call with lock held.
 		SettingsInterface* GetGameSettingsLayer();
@@ -149,6 +172,9 @@ namespace Host
 
 		/// Sets the base settings layer. Should be called by the host at initialization time.
 		void SetBaseSettingsLayer(SettingsInterface* sif);
+
+		/// Sets the secrets settings layer. Should follow call to SetBaseSettingsLayer.
+		void SetSecretsSettingsLayer(SettingsInterface* sif);
 
 		/// Sets the game settings layer. Called by VMManager when the game changes.
 		void SetGameSettingsLayer(SettingsInterface* sif, std::unique_lock<std::mutex>& settings_lock);

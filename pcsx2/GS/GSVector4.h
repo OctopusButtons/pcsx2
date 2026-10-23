@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 class alignas(16) GSVector4
@@ -61,16 +61,6 @@ public:
 	}
 
 	constexpr static GSVector4 cxpr(float x)
-	{
-		return GSVector4(cxpr_init, x, x, x, x);
-	}
-
-	constexpr static GSVector4 cxpr(int x, int y, int z, int w)
-	{
-		return GSVector4(cxpr_init, x, y, z, w);
-	}
-
-	constexpr static GSVector4 cxpr(int x)
 	{
 		return GSVector4(cxpr_init, x, x, x, x);
 	}

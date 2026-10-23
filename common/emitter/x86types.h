@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -29,6 +29,9 @@ namespace x86Emitter
 	static constexpr int SHADOW_STACK_SIZE = 0;
 #endif
 
+	/// This will switch all SSE instructions to generate AVX instructions instead
+	extern bool use_avx;
+
 	extern void xWrite8(u8 val);
 	extern void xWrite16(u16 val);
 	extern void xWrite32(u32 val);
@@ -41,28 +44,11 @@ namespace x86Emitter
 	template <typename T>
 	static __fi bool is_s8(T imm)
 	{
-		return (s8)imm == (typename std::make_signed<T>::type)imm;
+		return (s8)imm == (std::make_signed_t<T>)imm;
 	}
 
 	template <typename T>
 	void xWrite(T val);
-
-// --------------------------------------------------------------------------------------
-//  ALWAYS_USE_MOVAPS [define] / AlwaysUseMovaps [const]
-// --------------------------------------------------------------------------------------
-// This tells the recompiler's emitter to always use movaps instead of movdqa.  Both instructions
-// do the exact same thing, but movaps is 1 byte shorter, and thus results in a cleaner L1 cache
-// and some marginal speed gains as a result.  (it's possible someday in the future the per-
-// formance of the two instructions could change, so this constant is provided to restore MOVDQA
-// use easily at a later time, if needed).
-//
-#define ALWAYS_USE_MOVAPS
-
-#ifdef ALWAYS_USE_MOVAPS
-	static const bool AlwaysUseMovaps = true;
-#else
-	static const bool AlwaysUseMovaps = false;
-#endif
 
 // --------------------------------------------------------------------------------------
 //  __emitline - preprocessors definition
@@ -149,11 +135,13 @@ namespace x86Emitter
 	static const int Sib_UseDisp32 = 5; // same index value as EBP (used in Base field)
 
 	extern void xSetPtr(void* ptr);
+	extern void xSetTextPtr(void* ptr);
 	extern void xAlignPtr(uint bytes);
 	extern void xAdvancePtr(uint bytes);
 	extern void xAlignCallTarget();
 
 	extern u8* xGetPtr();
+	extern u8* xGetTextPtr();
 	extern u8* xGetAlignedCallTarget();
 
 	extern JccComparisonType xInvertCond(JccComparisonType src);
@@ -646,6 +634,8 @@ extern const xRegister32
     calleeSavedReg1d,
     calleeSavedReg2d;
 
+/// Holds a pointer to program text at all times so we don't need to be within 2GB of text
+static constexpr const xAddressReg& RTEXTPTR = rbx;
 
 	// clang-format on
 

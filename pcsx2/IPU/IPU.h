@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -10,9 +10,9 @@
 #define ipumsk( src ) ( (src) & 0xff )
 #define ipucase( src ) case ipumsk(src)
 
-#define IPU_INT_TO( cycles )  if(!(cpuRegs.interrupt & (1<<4))) CPU_INT( DMAC_TO_IPU, cycles )
+#define IPU_INT_TO( cycles )  if (!(cpuRegs.interrupt & (1<<4))) CPU_INT( DMAC_TO_IPU, cycles )
 #define IPU_INT_FROM( cycles )  CPU_INT( DMAC_FROM_IPU, cycles )
-#define IPU_INT_PROCESS( cycles ) if(!(cpuRegs.interrupt & (1 << IPU_PROCESS))) CPU_INT( IPU_PROCESS, cycles )
+#define IPU_INT_PROCESS( cycles ) if (!(cpuRegs.interrupt & (1 << IPU_PROCESS))) CPU_INT( IPU_PROCESS, cycles )
 //
 // Bitfield Structures
 //
@@ -284,7 +284,7 @@ extern bool FMVstarted;
 extern bool EnableFMV;
 
 alignas(16) extern tIPU_cmd ipu_cmd;
-extern uint eecount_on_last_vdec;
+extern u64 eecount_on_last_vdec;
 
 extern void ipuReset();
 

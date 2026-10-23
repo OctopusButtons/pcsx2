@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Settings/ControllerGlobalSettingsWidget.h"
@@ -19,7 +19,7 @@ ControllerGlobalSettingsWidget::ControllerGlobalSettingsWidget(QWidget* parent, 
 	SettingsInterface* sif = dialog->getProfileSettingsInterface();
 
 	ControllerSettingWidgetBinder::BindWidgetToInputProfileBool(sif, m_ui.enableSDLSource, "InputSources", "SDL", true);
-	ControllerSettingWidgetBinder::BindWidgetToInputProfileBool(sif, m_ui.enableSDLEnhancedMode, "InputSources", "SDLControllerEnhancedMode", false);
+	ControllerSettingWidgetBinder::BindWidgetToInputProfileBool(sif, m_ui.enableSDLEnhancedMode, "InputSources", "SDLControllerEnhancedMode", true);
 	connect(m_ui.enableSDLSource, &QCheckBox::checkStateChanged, this, &ControllerGlobalSettingsWidget::updateSDLOptionsEnabled);
 	connect(m_ui.ledSettings, &QToolButton::clicked, this, &ControllerGlobalSettingsWidget::ledSettingsClicked);
 
@@ -88,7 +88,11 @@ ControllerGlobalSettingsWidget::~ControllerGlobalSettingsWidget() = default;
 void ControllerGlobalSettingsWidget::addDeviceToList(const QString& identifier, const QString& name)
 {
 	QListWidgetItem* item = new QListWidgetItem();
-	item->setText(QStringLiteral("%1: %2").arg(identifier).arg(name));
+	if (identifier.compare(name, Qt::CaseInsensitive) == 0)
+		item->setText(identifier);
+	else
+		item->setText(QStringLiteral("%1: %2").arg(identifier).arg(name));
+
 	item->setData(Qt::UserRole, identifier);
 	m_ui.deviceList->addItem(item);
 }
@@ -146,7 +150,7 @@ ControllerLEDSettingsDialog::ControllerLEDSettingsDialog(QWidget* parent, Contro
 
 	SettingsInterface* sif = dialog->getProfileSettingsInterface();
 
-	ControllerSettingWidgetBinder::BindWidgetToInputProfileBool(sif, m_ui.enableSDLPS5PlayerLED, "InputSources", "SDLPS5PlayerLED", false);
+	ControllerSettingWidgetBinder::BindWidgetToInputProfileBool(sif, m_ui.enableSDLPS5PlayerLED, "InputSources", "SDLPS5PlayerLED", true);
 	connect(m_ui.buttonBox->button(QDialogButtonBox::Close), &QPushButton::clicked, this, &QDialog::accept);
 }
 
@@ -170,7 +174,7 @@ ControllerMouseSettingsDialog::ControllerMouseSettingsDialog(QWidget* parent, Co
 
 	SettingsInterface* sif = dialog->getProfileSettingsInterface();
 
-	m_ui.icon->setPixmap(QIcon::fromTheme(QStringLiteral("mouse-line")).pixmap(32, 32));
+	QtUtils::SetScalableIcon(m_ui.icon, QIcon::fromTheme(QStringLiteral("mouse-line")), QSize(32, 32));
 
 	ControllerSettingWidgetBinder::BindWidgetToInputProfileFloat(sif, m_ui.pointerXSpeedSlider, "Pad", "PointerXSpeed", 40.0f);
 	ControllerSettingWidgetBinder::BindWidgetToInputProfileFloat(sif, m_ui.pointerYSpeedSlider, "Pad", "PointerYSpeed", 40.0f);
@@ -202,11 +206,12 @@ ControllerMappingSettingsDialog::ControllerMappingSettingsDialog(ControllerSetti
 
 	SettingsInterface* sif = parent->getProfileSettingsInterface();
 
-	m_ui.icon->setPixmap(QIcon::fromTheme(QStringLiteral("settings-3-line")).pixmap(32, 32));
+	QtUtils::SetScalableIcon(m_ui.icon, QIcon::fromTheme(QStringLiteral("settings-3-line")), QSize(32, 32));
 
 	ControllerSettingWidgetBinder::BindWidgetToInputProfileBool(sif, m_ui.ignoreInversion, "InputSources", "IgnoreInversion", false);
 
 	connect(m_ui.buttonBox->button(QDialogButtonBox::Close), &QPushButton::clicked, this, &QDialog::accept);
 }
-
 ControllerMappingSettingsDialog::~ControllerMappingSettingsDialog() = default;
+
+#include "moc_ControllerGlobalSettingsWidget.cpp"

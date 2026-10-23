@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <time.h>
@@ -31,13 +31,13 @@ Counter counters[4];
 SyncCounter hsyncCounter;
 SyncCounter vsyncCounter;
 
-u32 nextStartCounter;	// records the cpuRegs.cycle value of the last call to rcntUpdate()
+u64 nextStartCounter;	// records the cpuRegs.cycle value of the last call to rcntUpdate()
 s32 nextDeltaCounter;	// delta from nextsCounter, in cycles, until the next rcntUpdate()
 
 // Forward declarations needed because C/C++ both are wimpy single-pass compilers.
 
-static void rcntStartGate(bool mode, u32 sCycle);
-static void rcntEndGate(bool mode, u32 sCycle);
+static void rcntStartGate(bool mode, u64 sCycle);
+static void rcntEndGate(bool mode, u64 sCycle);
 static void rcntWcount(int index, u32 value);
 static void rcntWmode(int index, u32 value);
 static void rcntWtarget(int index, u32 value);
@@ -215,7 +215,7 @@ static void vSyncInfoCalc(vSyncTimingInfo* info, double framesPerSecond, u32 sca
 	// Dynasty Warriors 3 Xtreme Legends - fake save corruption when loading save
 	// Jak II - random speedups
 	// Shadow of Rome - FMV audio issues
-	const bool ntsc_hblank = gsVideoMode != GS_VideoMode::PAL && gsVideoMode != GS_VideoMode::DVD_PAL;
+	const bool ntsc_hblank = gsVideoMode != GS_VideoMode::PAL && gsVideoMode != GS_VideoMode::DVD_PAL && (gsVideoMode != GS_VideoMode::Uninitialized || framesPerSecond != (Pcsx2Config::GSOptions::DEFAULT_FRAME_RATE_PAL / 2));
 	const u64 HalfFrame = Frame / 2;
 	const float extra_scanlines = static_cast<float>(IsProgressiveVideoMode()) * (ntsc_hblank ? 0.5f : 1.5f);
 	const u64 Blank = Scanline * ((ntsc_hblank ? 22.5f : 24.5f) + extra_scanlines);
@@ -234,7 +234,7 @@ static void vSyncInfoCalc(vSyncTimingInfo* info, double framesPerSecond, u32 sca
 	{
 		hBlank /= 2;
 		hRender /= 2;
- 	}
+	}
 
 	//TODO: Carry fixed-point math all the way through the entire vsync and hsync counting processes, and continually apply rounding
 	//as needed for each scheduled v/hsync related event. Much better to handle than this messed state.
@@ -252,7 +252,7 @@ static void vSyncInfoCalc(vSyncTimingInfo* info, double framesPerSecond, u32 sca
 	const u64 accumilatedHRenderError = (hRender % 10000) + (hBlank % 10000);
 	const u64 accumilatedHFractional = accumilatedHRenderError % 10000;
 	info->hRender += (u32)(accumilatedHRenderError / 10000);
-	info->hSyncError = (accumilatedHFractional * (scansPerFrame / (IsInterlacedVideoMode() ? 2 : 1))) / 10000;
+	info->hSyncError = (u32)((accumilatedHFractional * (scansPerFrame / (IsInterlacedVideoMode() ? 2 : 1))) / 10000);
 
 	// Note: In NTSC modes there is some small rounding error in the vsync too,
 	// however it would take thousands of frames for it to amount to anything and
@@ -307,10 +307,12 @@ double GetVerticalFrequency()
 	// https://web.archive.org/web/20120629231826fw_/http://ntsc-tv.com/index.html
 	// https://web.archive.org/web/20200831051302/https://www.hdretrovision.com/240p/
 
+	std::string cur_region = VMManager::Internal::GetCurrentRegion();
+
 	switch (gsVideoMode)
 	{
 		case GS_VideoMode::Uninitialized: // SetGsCrt hasn't executed yet, give some temporary values.
-			return 60.00;
+			return (cur_region == "PAL") ? Pcsx2Config::GSOptions::DEFAULT_FRAME_RATE_PAL : Pcsx2Config::GSOptions::DEFAULT_FRAME_RATE_NTSC;
 		case GS_VideoMode::PAL:
 		case GS_VideoMode::DVD_PAL:
 			return (IsProgressiveVideoMode() == false) ? EmuConfig.GS.FrameratePAL : EmuConfig.GS.FrameratePAL - 0.24f;
@@ -352,9 +354,9 @@ void UpdateVSyncRate(bool force)
 		{
 			case GS_VideoMode::Uninitialized: // SYSCALL instruction hasn't executed yet, give some temporary values.
 				if (gsIsInterlaced)
-					total_scanlines = SCANLINES_TOTAL_NTSC_I;
+					total_scanlines = (vertical_frequency == Pcsx2Config::GSOptions::DEFAULT_FRAME_RATE_PAL) ? SCANLINES_TOTAL_PAL_I : SCANLINES_TOTAL_NTSC_I;
 				else
-					total_scanlines = SCANLINES_TOTAL_NTSC_NI;
+					total_scanlines = (vertical_frequency == Pcsx2Config::GSOptions::DEFAULT_FRAME_RATE_PAL) ? SCANLINES_TOTAL_PAL_NI : SCANLINES_TOTAL_NTSC_NI;
 				break;
 			case GS_VideoMode::PAL:
 			case GS_VideoMode::DVD_PAL:
@@ -412,8 +414,8 @@ void UpdateVSyncRate(bool force)
 		s32 vdiff = vsyncCounter.deltaCycles;
 		hsyncCounter.deltaCycles = (hsyncCounter.Mode == MODE_HBLANK) ? vSyncInfo.hBlank : vSyncInfo.hRender;
 		vsyncCounter.deltaCycles = (vsyncCounter.Mode == MODE_GSBLANK) ?
-								  vSyncInfo.GSBlank :
-								  ((vsyncCounter.Mode == MODE_VBLANK) ? vSyncInfo.Blank : vSyncInfo.Render);
+		                               vSyncInfo.GSBlank :
+		                               ((vsyncCounter.Mode == MODE_VBLANK) ? vSyncInfo.Blank : vSyncInfo.Render);
 
 		hsyncCounter.startCycle += hdiff - hsyncCounter.deltaCycles;
 		vsyncCounter.startCycle += vdiff - vsyncCounter.deltaCycles;
@@ -425,7 +427,7 @@ void UpdateVSyncRate(bool force)
 }
 
 // FMV switch stuff
-extern uint eecount_on_last_vdec;
+extern u64 eecount_on_last_vdec;
 extern bool FMVstarted;
 extern bool EnableFMV;
 
@@ -484,7 +486,7 @@ static __fi void DoFMVSwitch()
 	}
 }
 
-static __fi void VSyncStart(u32 sCycle)
+static __fi void VSyncStart(u64 sCycle)
 {
 	// End-of-frame tasks.
 	DoFMVSwitch();
@@ -492,9 +494,12 @@ static __fi void VSyncStart(u32 sCycle)
 
 	// Don't bother throttling if we're going to pause.
 	if (!VMManager::Internal::IsExecutionInterrupted())
-		VMManager::Internal::Throttle();
+		VMManager::Internal::Throttle(true);
 
-	gsPostVsyncStart(); // MUST be after framelimit; doing so before causes funk with frame times!
+	if (!EmuConfig.GS.AdvancedFrameDisplay)
+	{
+		gsPostVsyncStart(); // MUST be after framelimit; doing so before causes funk with frame times!
+	}
 
 	// Poll input after MTGS frame push, just in case it has to stall to catch up.
 	VMManager::Internal::PollInputOnCPUThread();
@@ -561,9 +566,15 @@ static __fi void GSVSync()
 	}
 }
 
-static __fi void VSyncEnd(u32 sCycle)
+static __fi void VSyncEnd(u64 sCycle)
 {
 	EECNT_LOG("    ================  EE COUNTER VSYNC END (frame: %d)  ================", g_FrameCount);
+	VMManager::Internal::Throttle(false);
+
+	if (EmuConfig.GS.AdvancedFrameDisplay)
+	{
+		gsPostVsyncStart();
+	}
 
 	g_FrameCount++;
 	if (!GSSMODE1reg.SINT)
@@ -653,10 +664,10 @@ __fi void rcntUpdate_hScanline()
 	}
 	else
 	{ //HBLANK START / HRENDER End
-		
+
 		// set up the hblank's start and end cycle information:
 		hsyncCounter.startCycle += vSyncInfo.hRender; // start (absolute cycle value)
-		hsyncCounter.deltaCycles = vSyncInfo.hBlank;   // endpoint (delta from start value)
+		hsyncCounter.deltaCycles = vSyncInfo.hBlank;  // endpoint (delta from start value)
 		if (!GSSMODE1reg.SINT)
 		{
 			if (!CSRreg.HSINT)
@@ -740,7 +751,7 @@ __fi void rcntSyncCounter(int i)
 		const u32 change = (cpuRegs.cycle - counters[i].startCycle) / counters[i].rate;
 		counters[i].startCycle += change * counters[i].rate;
 
-		counters[i].startCycle &= ~(counters[i].rate - 1);
+		counters[i].startCycle &= ~((u64)counters[i].rate - 1);
 
 		if (rcntCanCount(i))
 			counters[i].count += change;
@@ -765,7 +776,7 @@ __fi void rcntUpdate()
 		rcntSyncCounter(i);
 
 		if (counters[i].mode.ClockSource == 0x3 || !rcntCanCount(i)) // don't count hblank sources
-				continue;
+			continue;
 
 		_cpuTestOverflow(i);
 		_cpuTestTarget(i);
@@ -789,7 +800,7 @@ static __fi void _rcntSetGate(int index)
 }
 
 // mode - 0 means hblank source, 8 means vblank source.
-static __fi void rcntStartGate(bool isVblank, u32 sCycle)
+static __fi void rcntStartGate(bool isVblank, u64 sCycle)
 {
 	for (int i = 0; i < 4; i++)
 	{
@@ -813,12 +824,12 @@ static __fi void rcntStartGate(bool isVblank, u32 sCycle)
 
 		switch (counters[i].mode.GateMode)
 		{
-			case 0x0:  //Count When Signal is low (V_RENDER ONLY)
+			case 0x0: // Count When Signal is low (V_RENDER ONLY)
 
 				// Just set the start cycle -- counting will be done as needed
 				// for events (overflows, targets, mode changes, and the gate off below)
 				rcntSyncCounter(i);
-				counters[i].startCycle = sCycle & ~(counters[i].rate - 1);
+				counters[i].startCycle = sCycle & ~((u64)counters[i].rate - 1);
 				EECNT_LOG("EE Counter[%d] %s StartGate Type0, count = %x", i,
 					isVblank ? "vblank" : "hblank", counters[i].count);
 				break;
@@ -830,7 +841,7 @@ static __fi void rcntStartGate(bool isVblank, u32 sCycle)
 				rcntSyncCounter(i);
 				counters[i].count = 0;
 				counters[i].target &= 0xffff;
-				counters[i].startCycle = sCycle & ~(counters[i].rate - 1);
+				counters[i].startCycle = sCycle & ~((u64)counters[i].rate - 1);
 				EECNT_LOG("EE Counter[%d] %s StartGate Type%d, count = %x", i,
 					isVblank ? "vblank" : "hblank", counters[i].mode.GateMode, counters[i].count);
 				break;
@@ -846,7 +857,7 @@ static __fi void rcntStartGate(bool isVblank, u32 sCycle)
 }
 
 // mode - 0 means hblank signal, 8 means vblank signal.
-static __fi void rcntEndGate(bool isVblank, u32 sCycle)
+static __fi void rcntEndGate(bool isVblank, u64 sCycle)
 {
 	for (int i = 0; i < 4; i++)
 	{
@@ -859,7 +870,7 @@ static __fi void rcntEndGate(bool isVblank, u32 sCycle)
 		switch (counters[i].mode.GateMode)
 		{
 			case 0x0: //Count When Signal is low (V_RENDER ONLY)
-				counters[i].startCycle = sCycle & ~(counters[i].rate - 1);
+				counters[i].startCycle = sCycle & ~((u64)counters[i].rate - 1);
 
 				EECNT_LOG("EE Counter[%d] %s EndGate Type0, count = %x", i,
 					isVblank ? "vblank" : "hblank", counters[i].count);
@@ -876,7 +887,7 @@ static __fi void rcntEndGate(bool isVblank, u32 sCycle)
 					isVblank ? "vblank" : "hblank", counters[i].mode.GateMode, counters[i].count);
 				counters[i].count = 0;
 				counters[i].target &= 0xffff;
-				counters[i].startCycle = sCycle & ~(counters[i].rate - 1);
+				counters[i].startCycle = sCycle & ~(static_cast<u64>(counters[i].rate - 1));
 				break;
 		}
 	}
@@ -903,7 +914,7 @@ static __fi void rcntWmode(int index, u32 value)
 	}
 
 	// In case the rate has changed we need to set the start cycle to the previous tick.
-	counters[index].startCycle = cpuRegs.cycle & ~(counters[index].rate - 1);
+	counters[index].startCycle = cpuRegs.cycle & ~((u64)counters[index].rate - 1);
 	_rcntSetGate(index);
 	_rcntSet(index);
 }
@@ -955,7 +966,7 @@ __fi u32 rcntRcount(int index)
 	u32 ret;
 
 	rcntSyncCounter(index);
-	
+
 	ret = counters[index].count;
 
 	// Spams the Console.

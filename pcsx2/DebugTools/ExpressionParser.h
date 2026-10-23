@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -27,5 +27,5 @@ public:
 };
 
 bool initPostfixExpression(const char* infix, IExpressionFunctions* funcs, PostfixExpression& dest, std::string& error);
-bool parsePostfixExpression(PostfixExpression& exp, IExpressionFunctions* funcs, u64& dest, std::string& error);
+bool parsePostfixExpression(const PostfixExpression& exp, IExpressionFunctions* funcs, u64& dest, std::string& error);
 bool parseExpression(const char* exp, IExpressionFunctions* funcs, u64& dest, std::string& error);

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -6,6 +6,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,13 +32,40 @@ struct VMBootParameters
 	std::string filename;
 	std::string elf_override;
 	std::string save_state;
+	std::string game_config;
 	std::optional<s32> state_index;
 	std::optional<CDVD_SourceType> source_type;
 
 	std::optional<bool> fast_boot;
 	std::optional<bool> fullscreen;
+	std::optional<bool> start_turbo;
+	std::optional<bool> start_unlimited;
 	bool disable_achievements_hardcore_mode = false;
 };
+
+enum class VMBootResult
+{
+	/// The boot succeeded.
+	StartupSuccess,
+	/// The boot failed and an error should be displayed in the UI.
+	StartupFailure,
+	/// The boot failed because the user needs to be prompted to disable
+	/// hardcore mode. If the user agrees, VMManager::Initialize should be
+	/// called again with disable_achievements_hardcore_mode set to true.
+	PromptDisableHardcoreMode
+};
+
+/// Callback used to restart the VM boot process after the user has consented
+/// to hardcore mode being disabled.
+using VMBootRestartCallback = std::function<void()>;
+
+/// Callback used when the VM boot process has been interrupted because the user
+/// needs to be prompted to disable hardcore mode.
+using VMBootHardcoreDisableCallback = std::function<void(std::string reason, VMBootRestartCallback restart_callback)>;
+
+/// Callback used when the VM boot process has finished. This may be called
+/// asynchronously after the user has been prompted to disable hardcore mode.
+using VMBootDoneCallback = std::function<void(VMBootResult result, const Error& error)>;
 
 namespace VMManager
 {
@@ -83,11 +111,22 @@ namespace VMManager
 	/// Returns the path to the ELF which is currently running. Only safe to read on the EE thread.
 	const std::string& GetCurrentELF();
 
-	/// Initializes all system components.
-	bool Initialize(VMBootParameters boot_params);
+	/// Initializes all system components. May restart itself asynchronously
+	/// using the provided hardcore_disable_callback function. Will call the
+	/// done_callback function on either success or failure.
+	void InitializeAsync(
+		const VMBootParameters& boot_params,
+		VMBootHardcoreDisableCallback hardcore_disable_callback,
+		VMBootDoneCallback done_callback);
+
+	/// Initializes all system components. Will not attempt to restart itself.
+	VMBootResult Initialize(const VMBootParameters& boot_params, Error* error = nullptr);
 
 	/// Destroys all system components.
 	void Shutdown(bool save_resume_state);
+
+	/// Resets all subsystems to a cold boot if it's safe to do so.
+	bool RequestReset();
 
 	/// Resets all subsystems to a cold boot.
 	void Reset();
@@ -114,28 +153,30 @@ namespace VMManager
 	void ReloadInputSources();
 
 	/// Reloads input bindings.
-	void ReloadInputBindings();
+	/// Can be forced to load even when there is not an active virtual machine.
+	void ReloadInputBindings(bool force = false);
 
 	/// Returns the save state filename for the given game serial/crc.
-	std::string GetSaveStateFileName(const char* game_serial, u32 game_crc, s32 slot);
+	std::string GetSaveStateFileName(const char* game_serial, u32 game_crc, s32 slot, bool backup = false);
 
 	/// Returns the path to save state for the specified disc/elf.
-	std::string GetSaveStateFileName(const char* filename, s32 slot);
+	std::string GetSaveStateFileName(const char* filename, s32 slot, bool backup = false);
 
 	/// Returns true if there is a save state in the specified slot.
 	bool HasSaveStateInSlot(const char* game_serial, u32 game_crc, s32 slot);
 
 	/// Loads state from the specified file.
-	bool LoadState(const char* filename);
+	bool LoadState(const char* filename, Error* error = nullptr);
 
 	/// Loads state from the specified slot.
-	bool LoadStateFromSlot(s32 slot);
+	bool LoadStateFromSlot(s32 slot, bool backup = false, Error* error = nullptr);
 
 	/// Saves state to the specified filename.
-	bool SaveState(const char* filename, bool zip_on_thread = true, bool backup_old_state = false);
+	void SaveState(const char* filename, bool zip_on_thread, bool backup_old_state,
+		std::function<void(const std::string&)> error_callback);
 
 	/// Saves state to the specified slot.
-	bool SaveStateToSlot(s32 slot, bool zip_on_thread = true);
+	void SaveStateToSlot(s32 slot, bool zip_on_thread, std::function<void(const std::string&)> error_callback);
 
 	/// Waits until all compressing save states have finished saving to disk.
 	void WaitForSaveStateFlush();
@@ -230,6 +271,9 @@ namespace VMManager
 	/// Called when the rich presence string, provided by RetroAchievements, changes.
 	void UpdateDiscordPresence(bool update_session_time);
 
+	/// Append bytes to the EE SIO RX FIFO. If it returns false, the FIFO is full and data is not inserted.
+	bool WriteBytesToEESIORXFIFO(const std::span<const u8> data);
+
 	/// Internal callbacks, implemented in the emu core.
 	namespace Internal
 	{
@@ -263,6 +307,9 @@ namespace VMManager
 		/// Returns true if fast booting is active (requested but ELF not started).
 		bool IsFastBootInProgress();
 
+		// Returns the current disc/BIOS region, if set.
+		std::string GetCurrentRegion();
+
 		/// Disables fast boot if it was requested, and found to be incompatible.
 		void DisableFastBoot();
 
@@ -276,7 +323,7 @@ namespace VMManager
 		void FrameRateChanged();
 
 		/// Throttles execution, or limits the frame rate.
-		void Throttle();
+		void Throttle(bool vsync_start);
 
 		/// Resets/clears all execution/code caches.
 		void ClearCPUExecutionCaches();

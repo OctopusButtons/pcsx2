@@ -47,7 +47,10 @@ add_subdirectory(common)
 
 # make pcsx2
 add_subdirectory(pcsx2)
-add_subdirectory(pcsx2-qt)
+
+if(ENABLE_QT_UI)
+	add_subdirectory(pcsx2-qt)
+endif()
 
 # Updater is Windows only for now.
 if (WIN32)
@@ -62,10 +65,9 @@ endif()
 
 # gsrunner
 if(ENABLE_GSRUNNER)
-	if (NOT WIN32)
-		message(WARNING "GSRunner is only supported on Windows and may not build on your system")
-	endif()
 	add_subdirectory(pcsx2-gsrunner)
+else()
+	add_subdirectory(pcsx2-gsrunner EXCLUDE_FROM_ALL)
 endif()
 
 #-------------------------------------------------------------------------------
@@ -79,17 +81,13 @@ No support will be provided, continue at your own risk.
 *********************************************************")
 endif()
 
-if(_M_ARM64)
+if(ARCH_ARM64)
 	message(WARNING "
 *************** UNSUPPORTED CONFIGURATION ***************
-
 Apple Silicon support in PCSX2 is INCOMPLETE. There are
 currently no EE/VU/IOP recompilers, and games will run
 VERY slow. There is no date for completion yet, you
 should set -DCMAKE_OSX_ARCHITECTURES=x86_64 for now,
 unless you want to work on the recompilers.
-
-We also ask that you read https://dont-ship.it/.
-
 *********************************************************")
 endif()

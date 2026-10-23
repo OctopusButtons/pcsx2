@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "DebugAnalysisSettingsWidget.h"
@@ -19,10 +19,14 @@ DebugAnalysisSettingsWidget::DebugAnalysisSettingsWidget(QWidget* parent)
 
 	setupSymbolSourceGrid();
 
-	m_ui.importFromElf->setChecked(Host::GetBoolSettingValue("Debugger/Analysis", "ImportSymbolsFromELF", true));
-	m_ui.importSymFileFromDefaultLocation->setChecked(Host::GetBoolSettingValue("Debugger/Analysis", "ImportSymFileFromDefaultLocation", true));
-	m_ui.demangleSymbols->setChecked(Host::GetBoolSettingValue("Debugger/Analysis", "DemangleSymbols", true));
-	m_ui.demangleParameters->setChecked(Host::GetBoolSettingValue("Debugger/Analysis", "DemangleParameters", true));
+	m_ui.importFromElf->setChecked(
+		Host::GetBoolSettingValue("Debugger/Analysis", "ImportSymbolsFromELF", true));
+	m_ui.importSymFileFromDefaultLocation->setChecked(
+		Host::GetBoolSettingValue("Debugger/Analysis", "ImportSymFileFromDefaultLocation", true));
+	m_ui.demangleSymbols->setChecked(
+		Host::GetBoolSettingValue("Debugger/Analysis", "DemangleSymbols", true));
+	m_ui.demangleParameters->setChecked(
+		Host::GetBoolSettingValue("Debugger/Analysis", "DemangleParameters", true));
 
 	setupSymbolFileList();
 
@@ -36,15 +40,22 @@ DebugAnalysisSettingsWidget::DebugAnalysisSettingsWidget(QWidget* parent)
 			m_ui.functionScanMode->setCurrentIndex(i);
 	}
 
-	m_ui.customAddressRange->setChecked(Host::GetBoolSettingValue("Debugger/Analysis", "CustomFunctionScanRange", false));
-	m_ui.addressRangeStart->setText(QString::fromStdString(Host::GetStringSettingValue("Debugger/Analysis", "FunctionScanStartAddress", "")));
-	m_ui.addressRangeEnd->setText(QString::fromStdString(Host::GetStringSettingValue("Debugger/Analysis", "FunctionScanEndAddress", "")));
+	m_ui.customAddressRange->setChecked(
+		Host::GetBoolSettingValue("Debugger/Analysis", "CustomFunctionScanRange", false));
+	m_ui.addressRangeStart->setText(QString::fromStdString(
+		Host::GetStringSettingValue("Debugger/Analysis", "FunctionScanStartAddress", "")));
+	m_ui.addressRangeEnd->setText(QString::fromStdString(
+		Host::GetStringSettingValue("Debugger/Analysis", "FunctionScanEndAddress", "")));
 
-	m_ui.grayOutOverwrittenFunctions->setChecked(Host::GetBoolSettingValue("Debugger/Analysis", "GenerateFunctionHashes", true));
+	m_ui.grayOutOverwrittenFunctions->setChecked(
+		Host::GetBoolSettingValue("Debugger/Analysis", "GenerateFunctionHashes", true));
 
-	connect(m_ui.automaticallyClearSymbols, &QCheckBox::checkStateChanged, this, &DebugAnalysisSettingsWidget::updateEnabledStates);
-	connect(m_ui.demangleSymbols, &QCheckBox::checkStateChanged, this, &DebugAnalysisSettingsWidget::updateEnabledStates);
-	connect(m_ui.customAddressRange, &QCheckBox::checkStateChanged, this, &DebugAnalysisSettingsWidget::updateEnabledStates);
+	connect(m_ui.automaticallyClearSymbols, &QCheckBox::checkStateChanged,
+		this, &DebugAnalysisSettingsWidget::updateEnabledStates);
+	connect(m_ui.demangleSymbols, &QCheckBox::checkStateChanged,
+		this, &DebugAnalysisSettingsWidget::updateEnabledStates);
+	connect(m_ui.customAddressRange, &QCheckBox::checkStateChanged,
+		this, &DebugAnalysisSettingsWidget::updateEnabledStates);
 
 	updateEnabledStates();
 }
@@ -122,12 +133,24 @@ DebugAnalysisSettingsWidget::DebugAnalysisSettingsWidget(SettingsWindow* dialog,
 	{
 		SettingWidgetBinder::BindWidgetToBoolSetting(
 			sif, m_ui.customAddressRange, "Debugger/Analysis", "CustomFunctionScanRange", false);
-		connect(m_ui.addressRangeStart, &QLineEdit::textChanged, this, &DebugAnalysisSettingsWidget::functionScanRangeChanged);
-		connect(m_ui.addressRangeEnd, &QLineEdit::textChanged, this, &DebugAnalysisSettingsWidget::functionScanRangeChanged);
+
+		m_ui.addressRangeStart->setText(QString::fromStdString(
+			getStringSettingValue("Debugger/Analysis", "FunctionScanStartAddress", "")));
+		m_ui.addressRangeEnd->setText(QString::fromStdString(
+			getStringSettingValue("Debugger/Analysis", "FunctionScanEndAddress", "")));
+
+		connect(m_ui.addressRangeStart, &QLineEdit::textChanged,
+			this, &DebugAnalysisSettingsWidget::saveFunctionScanRange);
+		connect(m_ui.addressRangeEnd, &QLineEdit::textChanged,
+			this, &DebugAnalysisSettingsWidget::saveFunctionScanRange);
 
 		m_dialog->registerWidgetHelp(m_ui.customAddressRange, tr("Custom Address Range"), tr("Unchecked"),
 			tr("Whether to look for functions from the address range specified (Checked), or from the ELF segment "
 			   "containing the entry point (Unchecked)."));
+		m_dialog->registerWidgetHelp(m_ui.addressRangeStart, tr("Scan Range Start Address"), tr("N/A"),
+			tr("Starting memory address (in hexadecimal) to begin scanning for functions."));
+		m_dialog->registerWidgetHelp(m_ui.addressRangeEnd, tr("Scan Range End Address"), tr("N/A"),
+			tr("Ending memory address (in hexadecimal) to stop scanning for functions."));
 	}
 	else
 	{
@@ -226,11 +249,21 @@ void DebugAnalysisSettingsWidget::setupSymbolSourceGrid()
 		int i = 0;
 		for (auto& [name, temp] : m_symbol_sources)
 		{
-			temp.check_box = new QCheckBox(QString::fromStdString(name));
+			QString display_name = SymbolGuardian::TranslateSymbolSourceName(name.c_str());
+
+			temp.check_box = new QCheckBox(display_name);
 			temp.check_box->setChecked(temp.previous_value);
 			layout->addWidget(temp.check_box, i / 2, i % 2);
 
-			connect(temp.check_box, &QCheckBox::checkStateChanged, this, &DebugAnalysisSettingsWidget::symbolSourceCheckStateChanged);
+			connect(temp.check_box, &QCheckBox::checkStateChanged, this, [this, name]() {
+				auto temp = m_symbol_sources.find(name);
+				if (temp == m_symbol_sources.end())
+					return;
+
+				temp->second.modified_by_user = true;
+
+				saveSymbolSources();
+			});
 
 			i++;
 		}
@@ -243,21 +276,6 @@ void DebugAnalysisSettingsWidget::setupSymbolSourceGrid()
 	}
 
 	m_ui.symbolSourceErrorMessage->hide();
-}
-
-void DebugAnalysisSettingsWidget::symbolSourceCheckStateChanged()
-{
-	QCheckBox* check_box = qobject_cast<QCheckBox*>(sender());
-	if (!check_box)
-		return;
-
-	auto temp = m_symbol_sources.find(check_box->text().toStdString());
-	if (temp == m_symbol_sources.end())
-		return;
-
-	temp->second.modified_by_user = true;
-
-	saveSymbolSources();
 }
 
 void DebugAnalysisSettingsWidget::saveSymbolSources()
@@ -302,6 +320,9 @@ void DebugAnalysisSettingsWidget::saveSymbolSources()
 
 		i++;
 	}
+
+	QtHost::SaveGameSettings(sif, true);
+	g_emu_thread->reloadGameSettings();
 }
 
 void DebugAnalysisSettingsWidget::setupSymbolFileList()
@@ -445,7 +466,7 @@ void DebugAnalysisSettingsWidget::saveSymbolFiles()
 	g_emu_thread->reloadGameSettings();
 }
 
-void DebugAnalysisSettingsWidget::functionScanRangeChanged()
+void DebugAnalysisSettingsWidget::saveFunctionScanRange()
 {
 	if (!m_dialog)
 		return;
@@ -457,13 +478,11 @@ void DebugAnalysisSettingsWidget::functionScanRangeChanged()
 	QString start_address = m_ui.addressRangeStart->text();
 	QString end_address = m_ui.addressRangeEnd->text();
 
-	bool ok;
+	sif->SetStringValue("Debugger/Analysis", "FunctionScanStartAddress", start_address.toStdString().c_str());
+	sif->SetStringValue("Debugger/Analysis", "FunctionScanEndAddress", end_address.toStdString().c_str());
 
-	if (start_address.toUInt(&ok, 16), ok)
-		sif->SetStringValue("Debugger/Analysis", "FunctionScanStartAddress", start_address.toStdString().c_str());
-
-	if (end_address.toUInt(&ok, 16), ok)
-		sif->SetStringValue("Debugger/Analysis", "FunctionScanEndAddress", end_address.toStdString().c_str());
+	QtHost::SaveGameSettings(sif, true);
+	g_emu_thread->reloadGameSettings();
 }
 
 void DebugAnalysisSettingsWidget::updateEnabledStates()
@@ -502,3 +521,5 @@ int DebugAnalysisSettingsWidget::getIntSettingValue(
 
 	return Host::GetIntSettingValue(section, key, default_value);
 }
+
+#include "moc_DebugAnalysisSettingsWidget.cpp"

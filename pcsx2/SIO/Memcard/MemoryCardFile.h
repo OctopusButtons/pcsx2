@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -42,6 +42,7 @@ void FileMcd_EmuOpen();
 void FileMcd_EmuClose();
 void FileMcd_CancelEject();
 void FileMcd_Reopen(std::string new_serial);
+void FileMcd_Swap();
 s32 FileMcd_IsPresent(uint port, uint slot);
 void FileMcd_GetSizeInfo(uint port, uint slot, McdSizeInfo* outways);
 bool FileMcd_IsPSX(uint port, uint slot);
@@ -56,6 +57,7 @@ std::vector<AvailableMcdInfo> FileMcd_GetAvailableCards(bool include_in_use_card
 std::optional<AvailableMcdInfo> FileMcd_GetCardInfo(const std::string_view name);
 bool FileMcd_IsMemoryCardFormatted(const std::string& path);
 bool FileMcd_IsMemoryCardFormatted(std::FILE* fp);
+bool FileMcd_InsertECC(std::vector<u8>& buffer);
 bool FileMcd_CreateNewCard(const std::string_view name, MemoryCardType type, MemoryCardFileType file_type);
 bool FileMcd_RenameCard(const std::string_view name, const std::string_view new_name);
 bool FileMcd_DeleteCard(const std::string_view name);

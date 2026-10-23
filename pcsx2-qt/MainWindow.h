@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -8,6 +8,8 @@
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QMenu>
+#include <QtWidgets/QSlider>
+#include <QtWidgets/QToolButton>
 #include <functional>
 #include <optional>
 
@@ -20,7 +22,7 @@
 class QProgressBar;
 
 class AutoUpdaterDialog;
-class DisplayWidget;
+class DisplaySurface;
 class DisplayContainer;
 class GameListWidget;
 class ControllerSettingsWindow;
@@ -65,12 +67,14 @@ public:
 		void cancelResume();
 
 	private:
-		VMLock(QWidget* dialog_parent, bool was_paused, bool was_exclusive_fullscreen);
+		VMLock(QWidget* dialog_parent, bool was_paused, bool was_exclusive_fullscreen, bool owns_parent);
 		friend MainWindow;
 
 		QWidget* m_dialog_parent;
+		bool m_has_lock;
 		bool m_was_paused;
 		bool m_was_fullscreen;
+		bool m_owns_dialog_parent;
 	};
 
 	/// Default filter for opening a file.
@@ -79,11 +83,15 @@ public:
 	/// Default filter for opening a disc image.
 	static const char* DISC_IMAGE_FILTER;
 
+	/// Default layout for the toolbar.
+	static const char* DEFAULT_TOOLBAR_LAYOUT;
+
 public:
 	MainWindow();
 	~MainWindow();
 
 	void initialize();
+	void rebuildToolbar();
 	void connectVMThreadSignals(EmuThread* thread);
 	void startupUpdateCheck();
 	void resetSettings(bool ui);
@@ -94,24 +102,48 @@ public:
 
 	/// Accessors for the status bar widgets, updated by the emulation thread.
 	__fi QLabel* getStatusVerboseWidget() const { return m_status_verbose_widget; }
+	__fi QToolButton* getStatusSpeedWidget() const { return m_status_speed_widget; }
+	__fi QToolButton* getStatusVolumeWidget() const { return m_status_volume_widget; }
 	__fi QLabel* getStatusRendererWidget() const { return m_status_renderer_widget; }
 	__fi QLabel* getStatusResolutionWidget() const { return m_status_resolution_widget; }
+	__fi QLabel* getStatusGPUWidget() const { return m_status_gpu_widget; }
 	__fi QLabel* getStatusFPSWidget() const { return m_status_fps_widget; }
 	__fi QLabel* getStatusVPSWidget() const { return m_status_vps_widget; }
-	__fi QLabel* getStatusSpeedWidget() const { return m_status_speed_widget; }
 
 	/// Rescans a single file. NOTE: Happens on UI thread.
 	void rescanFile(const std::string& path);
+
+	/// Updates a favorite in the game list. NOTE: Happens on UI thread.
+	void refreshGameListFavorite(const std::string& path);
+
+	/// Start a file from a user action (e.g. dragging a file onto the main window or with macOS open with)
+	bool startFile(const QString& path);
+
+	void doSettings(const char* category = nullptr);
+	void doGameSettings(const char* category = nullptr);
 
 	void openDebugger();
 	void checkMousePosition(int x, int y);
 public Q_SLOTS:
 	void checkForUpdates(bool display_message, bool force_check);
-	void refreshGameList(bool invalidate_cache);
+	void refreshGameList(bool invalidate_cache, bool popup_on_error);
 	void cancelGameListRefresh();
+	void updateGameListBackground();
+	void reportInfo(const QString& title, const QString& message);
 	void reportError(const QString& title, const QString& message);
 	bool confirmMessage(const QString& title, const QString& message);
 	void onStatusMessage(const QString& message);
+	void reportStateLoadError(const QString& message, std::optional<s32> slot, bool backup);
+	void reportStateSaveError(const QString& message, std::optional<s32> slot);
+
+	void setStatusVerboseText(const QString& text);
+	void setStatusRendererText(const QString& text);
+	void setStatusResolutionText(const QString& text);
+	void setStatusVolumeText(const QString& text, int volume, bool muted);
+	void setStatusGPUText(const QString& text);
+	void setStatusFPSText(const QString& text);
+	void setStatusVPSText(const QString& text);
+	void setStatusSpeedText(const QString& text);
 
 	void runOnUIThread(const std::function<void()>& func);
 	void requestReset();
@@ -126,8 +158,8 @@ private Q_SLOTS:
 	std::optional<WindowInfo> acquireRenderWindow(bool recreate_window, bool fullscreen, bool render_to_main, bool surfaceless);
 	void displayResizeRequested(qint32 width, qint32 height);
 	void mouseModeRequested(bool relative_mode, bool hide_cursor);
+	void mouseLockRequested(bool state);
 	void releaseRenderWindow();
-	void focusDisplayWidget();
 	void setupMouseMoveHandler();
 	void onGameListRefreshComplete();
 	void onGameListRefreshProgress(const QString& status, int current, int total);
@@ -150,6 +182,8 @@ private Q_SLOTS:
 	void onFullscreenUIStateChange(bool running);
 	void onViewToolbarActionToggled(bool checked);
 	void onViewLockToolbarActionToggled(bool checked);
+	void onCustomizeToolbarTriggered();
+	void onToolbarContextMenuRequested(const QPoint& pos);
 	void onViewStatusBarActionToggled(bool checked);
 	void onViewGameListActionTriggered();
 	void onViewGameGridActionTriggered();
@@ -163,6 +197,10 @@ private Q_SLOTS:
 	void onAboutActionTriggered();
 	void onToolsOpenDataDirectoryTriggered();
 	void onToolsCoverDownloaderTriggered();
+	void onToolsControllerTesterTriggered();
+#if !defined(__APPLE__)
+	void onCreateGameShortcutTriggered();
+#endif
 	void onToolsEditCheatsPatchesTriggered(bool cheats);
 	void onCreateMemoryCardOpenRequested();
 	void updateTheme();
@@ -212,6 +250,8 @@ protected:
 
 private:
 	void setupAdditionalUi();
+	void setupStatusBarWidgets();
+	void applyStatusBarVolumeChanges(std::optional<int> volume, bool toggle_mute, std::optional<bool> override_per_game = std::nullopt);
 	void connectSignals();
 	void createRendererSwitchMenu();
 	void recreate();
@@ -227,6 +267,7 @@ private:
 	void updateEmulationActions(bool starting, bool running, bool stopping);
 	void updateDisplayRelatedActions(bool has_surface, bool render_to_main, bool fullscreen);
 	void updateGameDependentActions();
+	void updateGameGridActions(const bool show_game_grid, const bool show_grid_cover_titles);
 	void updateStatusBarWidgetVisibility();
 	void updateAdvancedSettingsVisibility();
 	void updateWindowTitle();
@@ -246,7 +287,6 @@ private:
 	bool shouldAbortForMemcardBusy(const VMLock& lock);
 
 	QWidget* getContentParent();
-	QWidget* getDisplayContainer() const;
 	void saveDisplayWindowGeometryToConfig();
 	void restoreDisplayWindowGeometryFromConfig();
 	void createDisplayWidget(bool fullscreen, bool render_to_main);
@@ -254,25 +294,26 @@ private:
 	void updateDisplayWidgetCursor();
 
 	SettingsWindow* getSettingsWindow();
-	void doSettings(const char* category = nullptr);
 
 	InputRecordingViewer* getInputRecordingViewer();
 	void updateInputRecordingActions(bool started);
-
-	DebuggerWindow* getDebuggerWindow();
 
 	void doControllerSettings(ControllerSettingsWindow::Category category = ControllerSettingsWindow::Category::Count);
 
 	QString getDiscDevicePath(const QString& title);
 
 	void startGameListEntry(
-		const GameList::Entry* entry, std::optional<s32> save_slot = std::nullopt, std::optional<bool> fast_boot = std::nullopt);
-	void setGameListEntryCoverImage(const GameList::Entry* entry);
-	void clearGameListEntryPlayTime(const GameList::Entry* entry);
-	void goToWikiPage(const GameList::Entry* entry);
+		const GameList::Entry& entry, std::optional<s32> save_slot = std::nullopt, std::optional<bool> fast_boot = std::nullopt, bool load_backup = false);
+	void setGameListEntryCoverImage(const GameList::Entry& entry);
+	void clearGameListEntryPlayTime(const GameList::Entry& entry, const time_t entry_played_time);
+	void goToWikiPage(const GameList::Entry& entry);
+	void openMemoryCardFolder();
+	void openSnapshotsFolderForGame(const GameList::Entry& entry);
+	void openTextureFolderForGame(const GameList::Entry& entry);
+	void openVideoCaptureFolder(const GameList::Entry& entry);
 
 	std::optional<bool> promptForResumeState(const QString& save_state_path);
-	void loadSaveStateSlot(s32 slot);
+	void loadSaveStateSlot(s32 slot, bool load_backup = false);
 	void loadSaveStateFile(const QString& filename, const QString& state_filename);
 	void populateLoadStateMenu(QMenu* menu, const QString& filename, const QString& serial, quint32 crc);
 	void populateSaveStateMenu(QMenu* menu, const QString& serial, quint32 crc);
@@ -282,27 +323,35 @@ private:
 	Ui::MainWindow m_ui;
 
 	GameListWidget* m_game_list_widget = nullptr;
-	DisplayWidget* m_display_widget = nullptr;
-	DisplayContainer* m_display_container = nullptr;
+	DisplaySurface* m_display_surface = nullptr;
+	QWidget* m_display_container = nullptr;
 
 	SettingsWindow* m_settings_window = nullptr;
 	ControllerSettingsWindow* m_controller_settings_window = nullptr;
 	InputRecordingViewer* m_input_recording_viewer = nullptr;
 	AutoUpdaterDialog* m_auto_updater_dialog = nullptr;
 
-	DebuggerWindow* m_debugger_window = nullptr;
-
 	QProgressBar* m_status_progress_widget = nullptr;
 	QLabel* m_status_verbose_widget = nullptr;
 	QLabel* m_status_renderer_widget = nullptr;
+	QToolButton* m_status_volume_widget = nullptr;
+	QMenu* m_status_volume_menu = nullptr;
+	QAction* m_status_volume_per_game_action = nullptr;
+	QAction* m_status_volume_toggle_mute_action = nullptr;
+	QSlider* m_status_volume_slider = nullptr;
+	QLabel* m_status_gpu_widget = nullptr;
 	QLabel* m_status_fps_widget = nullptr;
 	QLabel* m_status_vps_widget = nullptr;
-	QLabel* m_status_speed_widget = nullptr;
+	QToolButton* m_status_speed_widget = nullptr;
+	QMenu* m_status_speed_menu = nullptr;
 	QLabel* m_status_resolution_widget = nullptr;
 
 	QMenu* m_settings_toolbar_menu = nullptr;
 
 	bool m_display_created = false;
+	bool m_status_volume_muted = false;
+	bool m_status_volume_slider_applied = false;
+	bool m_display_is_exclusive_fullscreen = false;
 	bool m_relative_mouse_mode = false;
 	bool m_hide_mouse_cursor = false;
 	bool m_was_paused_on_surface_loss = false;

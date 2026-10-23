@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -86,7 +86,7 @@ public:
 	static void SetStringFmt(Error* errptr, fmt::format_string<T...> fmt, T&&... args)
 	{
 		if (errptr)
-			Error::SetString(errptr, fmt::vformat(fmt, fmt::make_format_args(args...)));
+			Error::SetString(errptr, fmt::vformat(fmt.get(), fmt::make_format_args(args...)));
 	}
 
 	void AddPrefix(std::string_view prefix);

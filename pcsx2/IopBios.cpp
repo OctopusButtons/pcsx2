@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -21,6 +21,7 @@
 #include <cstring>
 #include <fmt/format.h>
 #include <sys/stat.h>
+#include <algorithm>
 
 #include <fcntl.h>
 
@@ -43,47 +44,48 @@
 
 typedef struct
 {
-	unsigned int mode;
-	unsigned int attr;
-	unsigned int size;
-	unsigned char ctime[8];
-	unsigned char atime[8];
-	unsigned char mtime[8];
-	unsigned int hisize;
+	u32 mode;
+	u32 attr;
+	u32 size;
+	u8 ctime[8];
+	u8 atime[8];
+	u8 mtime[8];
+	u32 hisize;
 } fio_stat_t;
 typedef struct
 {
 	fio_stat_t _fioStat;
 	/** Number of subs (main) / subpart number (sub) */
-	unsigned int private_0;
-	unsigned int private_1;
-	unsigned int private_2;
-	unsigned int private_3;
-	unsigned int private_4;
+	u32 private_0;
+	u32 private_1;
+	u32 private_2;
+	u32 private_3;
+	u32 private_4;
 	/** Sector start.  */
-	unsigned int private_5;
+	u32 private_5;
 } fxio_stat_t;
 
 typedef struct
 {
 	fio_stat_t stat;
 	char name[256];
-	unsigned int unknown;
+	u32 unknown;
 } fio_dirent_t;
 
 typedef struct
 {
 	fxio_stat_t stat;
 	char name[256];
-	unsigned int unknown;
+	u32 unknown;
 } fxio_dirent_t;
 
 static std::string hostRoot;
 
 void Hle_SetHostRoot(const char* bootFilename)
 {
-	hostRoot = Path::ToNativePath(Path::GetDirectory(bootFilename));
-	Console.WriteLn("HLE Host: Set 'host:' root path to: %s\n", hostRoot.c_str());
+	std::string path = Path::RealPath(bootFilename);
+	hostRoot = Path::ToNativePath(Path::GetDirectory(path));
+	Console.WriteLn("HLE Host: Set 'host:' root path to: %s", hostRoot.c_str());
 }
 
 void Hle_ClearHostRoot()
@@ -170,7 +172,7 @@ namespace R3000A
 		if (!FileSystem::StatFile(file_path.c_str(), &file_stats))
 			return -IOP_ENOENT;
 
-		host_stats->size = file_stats.st_size;
+		host_stats->size = (u32)file_stats.st_size;
 		host_stats->hisize = 0;
 
 		// Convert the mode.
@@ -314,13 +316,13 @@ namespace R3000A
 			switch (whence)
 			{
 				case IOP_SEEK_SET:
-					err = ::lseek(fd, offset, SEEK_SET);
+					err = static_cast<int>(::lseek(fd, offset, SEEK_SET));
 					break;
 				case IOP_SEEK_CUR:
-					err = ::lseek(fd, offset, SEEK_CUR);
+					err = static_cast<int>(::lseek(fd, offset, SEEK_CUR));
 					break;
 				case IOP_SEEK_END:
-					err = ::lseek(fd, offset, SEEK_END);
+					err = static_cast<int>(::lseek(fd, offset, SEEK_END));
 					break;
 				default:
 					return -IOP_EIO;
@@ -331,12 +333,12 @@ namespace R3000A
 
 		virtual int read(void* buf, u32 count) /* Flawfinder: ignore */
 		{
-			return translate_error(::read(fd, buf, count));
+			return translate_error(static_cast<int>(::read(fd, buf, count)));
 		}
 
 		virtual int write(void* buf, u32 count)
 		{
-			return translate_error(::write(fd, buf, count));
+			return translate_error(static_cast<int>(::write(fd, buf, count)));
 		}
 	};
 
@@ -641,7 +643,7 @@ namespace R3000A
 
 				for (size_t i = 0; i < handles.size(); i++)
 				{
-					if (handles[i].fd_index == (u32) fd - firstfd)
+					if (handles[i].fd_index == (u32)fd - firstfd)
 					{
 						handles.erase(handles.begin() + i);
 						break;
@@ -761,7 +763,7 @@ namespace R3000A
 					v0 = host_stat(full_path, (fxio_stat_t*)&buf);
 
 					for (size_t i = 0; i < sizeof(fxio_stat_t); i++)
-						iopMemWrite8(data + i, buf[i]);
+						iopMemWrite8(static_cast<u32>(data + i), buf[i]);
 				}
 				else
 				{
@@ -769,7 +771,7 @@ namespace R3000A
 					v0 = host_stat(full_path, (fio_stat_t*)&buf);
 
 					for (size_t i = 0; i < sizeof(fio_stat_t); i++)
-						iopMemWrite8(data + i, buf[i]);
+						iopMemWrite8(static_cast<u32>(data + i), buf[i]);
 				}
 				pc = ra;
 				return 1;
@@ -928,12 +930,6 @@ namespace R3000A
 	{
 		int Kprintf_HLE()
 		{
-			// Using sprintf here is a bit nasty, but it has a large buffer..
-			// Don't feel like rewriting it.
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
 
 			// Emulate the expected Kprintf functionality:
 			iopMemWrite32(sp, a0);
@@ -951,33 +947,48 @@ namespace R3000A
 			if (!ConsoleLogging.iopConsole.IsActive())
 				return 1;
 
-			char tmp[1024], tmp2[1024];
+			// maximum allowed size for our buffer before we truncate
+			constexpr unsigned int max_len = 4096;
+			char tmp[max_len], tmp2[max_len];
 			char* ptmp = tmp;
-			int n = 1, i = 0, j = 0;
+			unsigned int printed_bytes = 0;
+			unsigned int n = 1, i = 0, j = 0;
 
-			while (fmt[i])
+			while (fmt[i] && ptmp < std::end(tmp) - 1)
 			{
+				const int remaining_buf = static_cast<int>(std::end(tmp) - 1 - ptmp);
 				switch (fmt[i])
 				{
 					case '%':
 						j = 0;
 						tmp2[j++] = '%';
 					_start:
-						switch (fmt[++i])
+						// let's check whether this is our null terminator
+						// before allowing the parser to proceed
+						if (fmt[i + 1])
 						{
-							case '.':
-							case 'l':
-								tmp2[j++] = fmt[i];
-								goto _start;
-							default:
-								if (fmt[i] >= '0' && fmt[i] <= '9')
-								{
+							switch (fmt[++i])
+							{
+								case '.':
+								case 'l':
+									if (j >= max_len)
+										break;
 									tmp2[j++] = fmt[i];
 									goto _start;
-								}
-								break;
+								default:
+									if (fmt[i] >= '0' && fmt[i] <= '9')
+									{
+										if (j >= max_len)
+											break;
+										tmp2[j++] = fmt[i];
+										goto _start;
+									}
+									break;
+							}
 						}
 
+						if (j >= max_len)
+							break;
 						tmp2[j++] = fmt[i];
 						tmp2[j] = 0;
 
@@ -985,7 +996,8 @@ namespace R3000A
 						{
 							case 'f':
 							case 'F':
-								ptmp += sprintf(ptmp, tmp2, (float)iopMemRead32(sp + n * 4));
+								printed_bytes = std::min(remaining_buf, snprintf(ptmp, remaining_buf, tmp2, (float)iopMemRead32(sp + n * 4)));
+								ptmp += printed_bytes;
 								n++;
 								break;
 
@@ -995,7 +1007,8 @@ namespace R3000A
 							case 'E':
 							case 'g':
 							case 'G':
-								ptmp += sprintf(ptmp, tmp2, (double)iopMemRead32(sp + n * 4));
+								printed_bytes = std::min(remaining_buf, snprintf(ptmp, remaining_buf, tmp2, (double)iopMemRead32(sp + n * 4)));
+								ptmp += printed_bytes;
 								n++;
 								break;
 
@@ -1007,19 +1020,24 @@ namespace R3000A
 							case 'O':
 							case 'x':
 							case 'X':
-								ptmp += sprintf(ptmp, tmp2, (u32)iopMemRead32(sp + n * 4));
+							case 'u':
+							case 'U':
+								printed_bytes = std::min(remaining_buf, snprintf(ptmp, remaining_buf, tmp2, (u32)iopMemRead32(sp + n * 4)));
+								ptmp += printed_bytes;
 								n++;
 								break;
 
 							case 'c':
-								ptmp += sprintf(ptmp, tmp2, (u8)iopMemRead32(sp + n * 4));
+								printed_bytes = std::min(remaining_buf, snprintf(ptmp, remaining_buf, tmp2, (u8)iopMemRead32(sp + n * 4)));
+								ptmp += printed_bytes;
 								n++;
 								break;
 
 							case 's':
 							{
 								std::string s = iopMemReadString(iopMemRead32(sp + n * 4));
-								ptmp += sprintf(ptmp, tmp2, s.data());
+								printed_bytes = std::min(remaining_buf, snprintf(ptmp, remaining_buf, tmp2, s.data()));
+								ptmp += printed_bytes;
 								n++;
 							}
 							break;
@@ -1039,14 +1057,11 @@ namespace R3000A
 						break;
 				}
 			}
+			pxAssertRel(ptmp >= tmp && ptmp < std::end(tmp), "Overflowed tmp buffer");
 			*ptmp = 0;
 			iopConLog(ShiftJIS_ConvertString(tmp, 1023));
 
 			return 1;
-
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 		}
 	} // namespace sysmem
 
@@ -1055,27 +1070,22 @@ namespace R3000A
 
 		u32 GetModList(u32 a0reg)
 		{
-			u32 lcptr = iopMemRead32(0x3f0);
-			u32 lcstring = irxFindLoadcore(lcptr);
-			u32 list = 0;
+			/* Loadcore puts a pointer to a static array at 0x3f0 */
+			u32 bootmodes_ptr = iopMemRead32(0x3f0);
+			/* Search for the main loadcore struct from there */
+			u32 lcstring = irxFindLoadcore(bootmodes_ptr);
+			u32 lc_struct = 0;
 
 			if (lcstring == 0)
 			{
-				list = lcptr - 0x20;
+				lc_struct = bootmodes_ptr - 0x20;
 			}
 			else
 			{
-				list = lcstring + 0x18;
+				lc_struct = lcstring + 0x18;
 			}
 
-			u32 mod = iopMemRead32(list);
-
-			while (mod != 0)
-			{
-				mod = iopMemRead32(mod);
-			}
-
-			return list;
+			return lc_struct + 0x10;
 		}
 
 		// Gets the thread list ptr from thbase

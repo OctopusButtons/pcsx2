@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "pcsx2/Achievements.h"
@@ -6,7 +6,6 @@
 #include "pcsx2/GameList.h"
 #include "pcsx2/Host.h"
 #include "pcsx2/ImGui/FullscreenUI.h"
-#include "pcsx2/ImGui/ImGuiAnimated.h"
 #include "pcsx2/ImGui/ImGuiFullscreen.h"
 #include "pcsx2/ImGui/ImGuiManager.h"
 #include "pcsx2/Input/InputManager.h"
@@ -39,22 +38,36 @@ std::unique_ptr<ProgressCallback> Host::CreateHostProgressCallback()
 	return ProgressCallback::CreateNullProgressCallback();
 }
 
-void Host::ReportErrorAsync(const std::string_view title, const std::string_view message)
+void Host::ReportInfoAsync(const std::string_view title, const std::string_view message)
 {
 }
 
-bool Host::ConfirmMessage(const std::string_view title, const std::string_view message)
+void Host::ReportErrorAsync(const std::string_view title, const std::string_view message)
 {
-	return true;
 }
 
 void Host::OpenURL(const std::string_view url)
 {
 }
 
+bool Host::InBatchMode()
+{
+	return false;
+}
+
+bool Host::InNoGUIMode()
+{
+	return false;
+}
+
 bool Host::CopyTextToClipboard(const std::string_view text)
 {
 	return false;
+}
+
+std::string Host::GetTextFromClipboard()
+{
+	return std::string();
 }
 
 void Host::BeginTextInput()
@@ -79,6 +92,10 @@ void Host::OnInputDeviceDisconnected(const InputBindingKey key, const std::strin
 }
 
 void Host::SetMouseMode(bool relative_mode, bool hide_cursor)
+{
+}
+
+void Host::SetMouseLock(bool state)
 {
 }
 
@@ -144,11 +161,19 @@ void Host::RunOnCPUThread(std::function<void()> function, bool block /* = false 
 {
 }
 
+void Host::RunOnGSThread(std::function<void()> function)
+{
+}
+
 void Host::RefreshGameListAsync(bool invalidate_cache)
 {
 }
 
 void Host::CancelGameListRefresh()
+{
+}
+
+void Host::OnGameListFavoriteChanged(const std::string& path)
 {
 }
 
@@ -230,12 +255,9 @@ void Host::OnAchievementsHardcoreModeChanged(bool enabled)
 {
 }
 
-void Host::OnCoverDownloaderOpenRequested()
+bool Host::LocaleCircleConfirm()
 {
-}
-
-void Host::OnCreateMemoryCardOpenRequested()
-{
+	return false;
 }
 
 bool Host::ShouldPreferHostFileSelector()
@@ -247,6 +269,14 @@ void Host::OpenHostFileSelectorAsync(std::string_view title, bool select_directo
 	FileSelectorFilters filters, std::string_view initial_directory)
 {
 	callback(std::string());
+}
+
+int Host::LocaleSensitiveCompare(std::string_view lhs, std::string_view rhs)
+{
+	int res = std::strncmp(lhs.data(), rhs.data(), std::min(lhs.size(), rhs.size()));
+	if (res != 0)
+		return res;
+	return lhs.size() > rhs.size() ? 1 : lhs.size() < rhs.size() ? -1 : 0;
 }
 
 std::optional<u32> InputManager::ConvertHostKeyboardStringToCode(const std::string_view str)

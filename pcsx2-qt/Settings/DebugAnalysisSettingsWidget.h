@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -7,7 +7,6 @@
 #include "Config.h"
 
 #include <QtGui/QStandardItemModel>
-#include <QtWidgets/QDialog>
 
 class SettingsWindow;
 
@@ -31,7 +30,6 @@ public:
 
 protected:
 	void setupSymbolSourceGrid();
-	void symbolSourceCheckStateChanged();
 	void saveSymbolSources();
 
 	void setupSymbolFileList();
@@ -39,7 +37,7 @@ protected:
 	void removeSymbolFile();
 	void saveSymbolFiles();
 
-	void functionScanRangeChanged();
+	void saveFunctionScanRange();
 
 	void updateEnabledStates();
 

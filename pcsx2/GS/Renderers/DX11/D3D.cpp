@@ -1,13 +1,14 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Config.h"
+#include "GS/GSShaderCompileIndicator.h"
 #include "GS/Renderers/Common/GSDevice.h"
 #include "GS/Renderers/DX11/D3D.h"
 #include "GS/GSExtra.h"
 #include "Host.h"
 
-#ifdef _M_X86
+#ifdef ENABLE_VULKAN
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
 #endif
 
@@ -15,13 +16,13 @@
 #include "common/StringUtil.h"
 #include "common/Path.h"
 
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 
-#include <appmodel.h>
 #include <array>
 #include <d3d11.h>
-#include <d3d12.h>
+#include <directx/d3d12.h>
 #include <d3dcompiler.h>
+#include <dxcapi.h>
 #include <fstream>
 
 #include "fmt/format.h"
@@ -87,6 +88,7 @@ std::vector<GSAdapterInfo> D3D::GetAdapterInfo(IDXGIFactory5* factory)
 		ai.max_upscale_multiplier = GSGetMaxUpscaleMultiplier(ai.max_texture_size);
 
 		wil::com_ptr_nothrow<IDXGIOutput> output;
+		// Only check the first output, which would be the primary display (if any is connected)
 		if (SUCCEEDED(hr = adapter->EnumOutputs(0, &output)))
 		{
 			UINT num_modes = 0;
@@ -111,7 +113,7 @@ std::vector<GSAdapterInfo> D3D::GetAdapterInfo(IDXGIFactory5* factory)
 				ERROR_LOG("GetDisplayModeList() failed: {:08X}", static_cast<unsigned>(hr));
 			}
 		}
-		else
+		else if (hr != DXGI_ERROR_NOT_FOUND)
 		{
 			ERROR_LOG("EnumOutputs() failed: {:08X}", static_cast<unsigned>(hr));
 		}
@@ -122,17 +124,18 @@ std::vector<GSAdapterInfo> D3D::GetAdapterInfo(IDXGIFactory5* factory)
 	return adapters;
 }
 
-bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const RECT& window_rect, u32 width,
+bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, HWND window_hwnd, u32 width,
 	u32 height, float refresh_rate, DXGI_FORMAT format, DXGI_MODE_DESC* fullscreen_mode, IDXGIOutput** output)
 {
 	// We need to find which monitor the window is located on.
-	const GSVector4i client_rc_vec = GSVector4i::load<false>(&window_rect);
+	// DXGI seems to use the nearest monitor if the window is out of bounds.
+	const auto* monitor = MonitorFromWindow(window_hwnd, MONITOR_DEFAULTTONEAREST);
 
-	// The window might be on a different adapter to which we are rendering.. so we have to enumerate them all.
+	// The monitor might be on a different adapter to which we are rendering.. so we have to enumerate them all.
 	HRESULT hr;
-	wil::com_ptr_nothrow<IDXGIOutput> first_output, intersecting_output;
+	wil::com_ptr_nothrow<IDXGIOutput> first_output, monitor_output;
 
-	for (u32 adapter_index = 0; !intersecting_output; adapter_index++)
+	for (u32 adapter_index = 0; !monitor_output; adapter_index++)
 	{
 		wil::com_ptr_nothrow<IDXGIAdapter1> adapter;
 		hr = factory->EnumAdapters1(adapter_index, adapter.put());
@@ -151,10 +154,9 @@ bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const 
 			else if (FAILED(hr) || FAILED(this_output->GetDesc(&output_desc)))
 				continue;
 
-			const GSVector4i output_rc = GSVector4i::load<false>(&output_desc.DesktopCoordinates);
-			if (!client_rc_vec.rintersect(output_rc).rempty())
+			if (output_desc.Monitor == monitor)
 			{
-				intersecting_output = std::move(this_output);
+				monitor_output = std::move(this_output);
 				break;
 			}
 
@@ -164,7 +166,7 @@ bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const 
 		}
 	}
 
-	if (!intersecting_output)
+	if (!monitor_output)
 	{
 		if (!first_output)
 		{
@@ -173,7 +175,7 @@ bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const 
 		}
 
 		Console.Warning("No DXGI output found for window, using first.");
-		intersecting_output = std::move(first_output);
+		monitor_output = std::move(first_output);
 	}
 
 	DXGI_MODE_DESC request_mode = {};
@@ -183,15 +185,15 @@ bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const 
 	request_mode.RefreshRate.Numerator = static_cast<UINT>(std::floor(refresh_rate * 1000.0f));
 	request_mode.RefreshRate.Denominator = 1000u;
 
-	if (FAILED(hr = intersecting_output->FindClosestMatchingMode(&request_mode, fullscreen_mode, nullptr)) ||
+	if (FAILED(hr = monitor_output->FindClosestMatchingMode(&request_mode, fullscreen_mode, nullptr)) ||
 		request_mode.Format != format)
 	{
 		ERROR_LOG("Failed to find closest matching mode, hr={:08X}", static_cast<unsigned>(hr));
 		return false;
 	}
 
-	*output = intersecting_output.get();
-	intersecting_output->AddRef();
+	*output = monitor_output.get();
+	monitor_output->AddRef();
 	return true;
 }
 
@@ -373,6 +375,8 @@ GSRendererType D3D::GetPreferredRenderer()
 		Console.WriteLn("D3D11 feature level for autodetection: %x", static_cast<unsigned>(feature_level));
 		return feature_level;
 	};
+
+	/*
 	const auto get_d3d12_device = [&adapter]() {
 		wil::com_ptr_nothrow<ID3D12Device> device;
 		const HRESULT hr = D3D12CreateDevice(adapter.get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.put()));
@@ -380,35 +384,14 @@ GSRendererType D3D::GetPreferredRenderer()
 			Console.Error("D3D12CreateDevice() for automatic renderer failed: %08X", hr);
 		return device;
 	};
+	
 #ifdef ENABLE_VULKAN
-	static constexpr auto check_for_mapping_layers = []() {
-		PCWSTR familyName = L"Microsoft.D3DMappingLayers_8wekyb3d8bbwe";
-		UINT32 numPackages = 0, bufferLength = 0;
-		const DWORD error = GetPackagesByPackageFamily(familyName, &numPackages, nullptr, &bufferLength, nullptr);
-		if (error == ERROR_INSUFFICIENT_BUFFER || numPackages > 0)
-		{
-			Host::AddIconOSDMessage("VKDriverUnsupported", ICON_FA_TV,
-				TRANSLATE_STR("GS",
-					"Your system has the \"OpenCL, OpenGL, and Vulkan Compatibility Pack\" installed.\n"
-					"This Vulkan driver crashes PCSX2 on some GPUs.\n"
-					"To use the Vulkan renderer, you should remove this app package."),
-				Host::OSD_WARNING_DURATION);
-			return true;
-		}
-
-		return false;
-	};
 	static constexpr auto check_vulkan_supported = []() {
-		// Don't try to enumerate Vulkan devices if the DX12 Vulkan driver is present.
-		// It crashes on AMD GPUs.
-		if (check_for_mapping_layers())
-			return false;
-
 		if (!GSDeviceVK::EnumerateGPUs().empty())
 			return true;
 
 		Host::AddIconOSDMessage("VKDriverUnsupported", ICON_FA_TV, TRANSLATE_STR("GS",
-			"The Vulkan renderer was automatically selected, but no compatible devices were found.\n"
+			"The Vulkan graphics API was automatically selected, but no compatible devices were found.\n"
 			"       You should update all graphics drivers in your system, including any integrated GPUs\n"
 			"       to use the Vulkan renderer."), Host::OSD_WARNING_DURATION);
 		return false;
@@ -416,6 +399,7 @@ GSRendererType D3D::GetPreferredRenderer()
 #else
 	static constexpr auto check_vulkan_supported = []() { return false; };
 #endif
+	*/
 
 	switch (GetVendorID(adapter.get()))
 	{
@@ -425,7 +409,8 @@ GSRendererType D3D::GetPreferredRenderer()
 			if (!feature_level.has_value())
 				return GSRendererType::DX11;
 			else if (feature_level == D3D_FEATURE_LEVEL_12_0)
-				return check_vulkan_supported() ? GSRendererType::VK : GSRendererType::OGL;
+				//return check_vulkan_supported() ? GSRendererType::VK : GSRendererType::OGL;
+				return GSRendererType::DX12;
 			else if (feature_level == D3D_FEATURE_LEVEL_11_0)
 				return GSRendererType::OGL;
 			else
@@ -438,44 +423,57 @@ GSRendererType D3D::GetPreferredRenderer()
 			if (!feature_level.has_value())
 				return GSRendererType::DX11;
 			else if (feature_level == D3D_FEATURE_LEVEL_12_0)
-				return check_vulkan_supported() ? GSRendererType::VK : GSRendererType::DX11;
+				//return check_vulkan_supported() ? GSRendererType::VK : GSRendererType::DX12;
+				return GSRendererType::DX12;
+			else if (feature_level == D3D_FEATURE_LEVEL_11_1)
+				return GSRendererType::DX12;
 			else
 				return GSRendererType::DX11;
 		}
 
 		case VendorID::Intel:
 		{
-			// Vulkan has broken barriers, prior to Xe.
-
+			// Note1: Vulkan has broken barriers, prior to Xe.
 			// Sampler feedback Tier 0.9 is only present in Tiger Lake/Xe/Arc, so we can use that to
 			// differentiate between them. Unfortunately, that requires a D3D12 device.
-			const auto device12 = get_d3d12_device();
-			if (device12)
-			{
-				D3D12_FEATURE_DATA_D3D12_OPTIONS7 opts = {};
-				if (SUCCEEDED(device12->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &opts, sizeof(opts))) &&
-					(opts.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9) &&
-					check_vulkan_supported())
-				{
-					Console.WriteLn("Sampler feedback tier 0.9 found for Intel GPU, defaulting to Vulkan.");
-					return GSRendererType::VK;
-				}
-				else
-				{
-					Console.WriteLn("Sampler feedback tier 0.9 or Vulkan not found for Intel GPU, using OpenGL.");
-					return GSRendererType::OGL;
-				}
-			}
 
-			Console.WriteLn("Sampler feedback tier 0.9 or Direct3D 12 not found for Intel GPU, using Direct3D 11.");
-			return GSRendererType::DX11;
+			// Note2: Keep DX11 default on Haswell/Broadwell as OpenGL is much much slower.
+			const std::optional<D3D_FEATURE_LEVEL> feature_level = get_d3d11_feature_level();
+			if (!feature_level.has_value())
+				return GSRendererType::DX11;
+			else if (feature_level == D3D_FEATURE_LEVEL_12_0)
+			{
+				return GSRendererType::DX12;
+				/*
+				// Keep the old code as a reference if we need it.
+				const auto device12 = get_d3d12_device();
+				if (device12)
+				{
+					D3D12_FEATURE_DATA_D3D12_OPTIONS7 opts = {};
+					if (SUCCEEDED(device12->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &opts, sizeof(opts))) &&
+						(opts.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9) &&
+						check_vulkan_supported())
+					{
+						Console.WriteLn("Sampler feedback tier 0.9 found for Intel GPU, defaulting to Vulkan.");
+						return GSRendererType::VK;
+					}
+					else
+						return GSRendererType::OGL;
+				}
+				
+				else
+					return GSRendererType::OGL;
+				*/
+			}
+			else
+				return GSRendererType::DX11;
 		}
 		break;
 
 		default:
 		{
 			// Default is D3D11, but prefer DX12 on ARM (better drivers).
-#ifdef _M_ARM64
+#ifdef ARCH_ARM64
 			return GSRendererType::DX12;
 #else
 			return GSRendererType::DX11;
@@ -484,28 +482,59 @@ GSRendererType D3D::GetPreferredRenderer()
 	}
 }
 
-wil::com_ptr_nothrow<ID3DBlob> D3D::CompileShader(D3D::ShaderType type, D3D_FEATURE_LEVEL feature_level, bool debug,
+const char* D3D::ShaderModelToCacheString(D3D::ShaderModel shader_model)
+{
+	switch (shader_model)
+	{
+		case ShaderModel::SM40:
+			return "sm40";
+		case ShaderModel::SM41:
+			return "sm41";
+		case ShaderModel::SM50:
+			return "sm50";
+		case ShaderModel::SM51:
+		case ShaderModel::SM60:
+		case ShaderModel::SM61:
+		case ShaderModel::SM62:
+		case ShaderModel::SM63:
+		case ShaderModel::SM64:
+			return "sm51";
+		case ShaderModel::SM65:
+			return "sm65";
+		default:
+			return "unk";
+	}
+}
+
+wil::com_ptr_nothrow<ID3DBlob> D3D::CompileShaderDXBC(D3D::ShaderType type, D3D::ShaderModel shader_model, bool debug,
 	const std::string_view code, const D3D_SHADER_MACRO* macros /* = nullptr */,
 	const char* entry_point /* = "main" */)
 {
 	const char* target;
-	switch (feature_level)
+	switch (shader_model)
 	{
-		case D3D_FEATURE_LEVEL_10_0:
+		case ShaderModel::SM40:
 		{
 			static constexpr std::array<const char*, 4> targets = {{"vs_4_0", "ps_4_0", "cs_4_0"}};
 			target = targets[static_cast<int>(type)];
 		}
 		break;
 
-		case D3D_FEATURE_LEVEL_11_0:
+		case ShaderModel::SM41:
+		{
+			static constexpr std::array<const char*, 4> targets = {{"vs_4_1", "ps_4_1", "cs_4_1"}};
+			target = targets[static_cast<int>(type)];
+		}
+		break;
+
+		case ShaderModel::SM50:
 		{
 			static constexpr std::array<const char*, 4> targets = {{"vs_5_0", "ps_5_0", "cs_5_0"}};
 			target = targets[static_cast<int>(type)];
 		}
 		break;
 
-		case D3D_FEATURE_LEVEL_11_1:
+		case ShaderModel::SM51:
 		default:
 		{
 			static constexpr std::array<const char*, 4> targets = {{"vs_5_1", "ps_5_1", "cs_5_1"}};
@@ -515,7 +544,7 @@ wil::com_ptr_nothrow<ID3DBlob> D3D::CompileShader(D3D::ShaderType type, D3D_FEAT
 	}
 
 	static constexpr UINT flags_non_debug = D3DCOMPILE_OPTIMIZATION_LEVEL3;
-	static constexpr UINT flags_debug = D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_DEBUG;
+	static constexpr UINT flags_debug = D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_DEBUG | D3DCOMPILE_DEBUG_NAME_FOR_SOURCE;
 
 	wil::com_ptr_nothrow<ID3DBlob> blob;
 	wil::com_ptr_nothrow<ID3DBlob> error_blob;
@@ -531,7 +560,7 @@ wil::com_ptr_nothrow<ID3DBlob> D3D::CompileShader(D3D::ShaderType type, D3D_FEAT
 
 	if (FAILED(hr))
 	{
-		Console.WriteLn("Failed to compile '%s':\n%s", target, error_string.c_str());
+		Console.WriteLn("D3D: Failed to compile '%s':\n%s", target, error_string.c_str());
 
 		std::ofstream ofs(Path::Combine(EmuFolders::Logs, fmt::format("pcsx2_bad_shader_{}.txt", s_next_bad_shader_id++)),
 			std::ofstream::out | std::ofstream::binary);
@@ -556,4 +585,125 @@ wil::com_ptr_nothrow<ID3DBlob> D3D::CompileShader(D3D::ShaderType type, D3D_FEAT
 		Console.Warning("'%s' compiled with warnings:\n%s", target, error_string.c_str());
 
 	return blob;
+}
+
+wil::com_ptr_nothrow<ID3DBlob> D3D::CompileShaderDXIL(D3D::ShaderType type, D3D::ShaderModel shader_model, bool debug,
+	const std::string_view code, const D3D_SHADER_MACRO* macros /* = nullptr */,
+	const char* entry_point /* = "main" */)
+{
+	const wchar_t* target;
+	switch (shader_model)
+	{
+		case ShaderModel::SM60:
+		case ShaderModel::SM61:
+		case ShaderModel::SM62:
+		case ShaderModel::SM63:
+		case ShaderModel::SM64:
+			pxAssert(false);
+			break;
+		case ShaderModel::SM65:
+		default:
+		{
+			static constexpr std::array<const wchar_t*, 4> targets = {{L"vs_6_5", L"ps_6_5", L"cs_6_5"}};
+			target = targets[static_cast<int>(type)];
+		}
+		break;
+	}
+
+	// Build Args.
+	std::vector<std::wstring> args;
+	if (macros)
+	{
+		for (const D3D_SHADER_MACRO* macro = macros; macro->Name != nullptr; macro++)
+			args.push_back(StringUtil::UTF8StringToWideString(fmt::format("-D{}={}", macro->Name, macro->Definition)));
+	}
+
+	if (entry_point)
+	{
+		args.push_back(L"-E");
+		args.push_back(StringUtil::UTF8StringToWideString(entry_point));
+	}
+
+	args.push_back(L"-T");
+	args.push_back(target);
+
+	if (debug)
+	{
+		args.push_back(L"-Od");
+		args.push_back(L"-Zi");
+		args.push_back(L"-Zss");
+		args.push_back(L"-Qembed_debug");
+	}
+	else
+	{
+		args.push_back(L"-O3");
+		args.push_back(L"-Qstrip_reflect");
+	}
+
+	std::vector<const wchar_t*> arg_ptrs;
+	arg_ptrs.reserve(args.size());
+	for (const std::wstring& arg : args)
+		arg_ptrs.push_back(arg.c_str());
+
+	// Compile Shader.
+	wil::com_ptr_nothrow<IDxcCompiler3> compiler;
+	DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(compiler.put()));
+
+	const DxcBuffer source{code.data(), code.length(), DXC_CP_UTF8};
+	wil::com_ptr_nothrow<IDxcResult> results;
+	HRESULT hr = compiler->Compile(&source, arg_ptrs.data(), arg_ptrs.size(), nullptr, IID_PPV_ARGS(results.put()));
+
+	if (FAILED(hr))
+	{
+		Console.WriteLn("Compiler Failed");
+		return {};
+	}
+
+	wil::com_ptr_nothrow<IDxcBlobUtf8> error_string = nullptr;
+	results->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(error_string.put()), nullptr);
+
+	results->GetStatus(&hr);
+	if (FAILED(hr))
+	{
+		std::string target_utf8 = StringUtil::WideStringToUTF8String(target);
+		Console.WriteLn("D3D: Failed to compile '%s':\n%s", target_utf8.c_str(), error_string->GetStringPointer());
+
+		std::ofstream ofs(Path::Combine(EmuFolders::Logs, fmt::format("pcsx2_bad_shader_{}.txt", s_next_bad_shader_id++)),
+			std::ofstream::out | std::ofstream::binary);
+		if (ofs.is_open())
+		{
+			ofs << code;
+			ofs << "\n\nCompile as " << target_utf8.c_str() << " failed: " << hr << "\n";
+			ofs.write(error_string->GetStringPointer(), error_string->GetStringLength());
+			ofs << "\n";
+			if (macros)
+			{
+				for (const D3D_SHADER_MACRO* macro = macros; macro->Name != nullptr; macro++)
+					ofs << "#define " << macro->Name << " " << macro->Definition << "\n";
+			}
+			ofs.close();
+		}
+
+		return {};
+	}
+
+	if (error_string->GetStringLength() != 0)
+		Console.Warning("'%s' compiled with warnings:\n%s", StringUtil::WideStringToUTF8String(target).c_str(), error_string->GetStringPointer());
+
+	wil::com_ptr_nothrow<ID3DBlob> blob = nullptr;
+	results->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(blob.put()), nullptr);
+
+	return blob;
+}
+
+wil::com_ptr_nothrow<ID3DBlob> D3D::CompileShader(D3D::ShaderType type, D3D::ShaderModel shader_model, bool debug,
+	const std::string_view code, const D3D_SHADER_MACRO* macros /* = nullptr */,
+	const char* entry_point /* = "main" */)
+{
+	const GSShaderCompileIndicator::CompileTimer compile_timer;
+
+	if (static_cast<int>(shader_model) < 0x65)
+		return CompileShaderDXBC(type, shader_model, debug, code, macros, entry_point);
+	else
+		return CompileShaderDXIL(type, shader_model, debug, code, macros, entry_point);
 }

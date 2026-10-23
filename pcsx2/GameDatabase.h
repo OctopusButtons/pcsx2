@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -51,13 +51,18 @@ namespace GameDatabaseSchema
 		PreloadFrameData,
 		DisablePartialInvalidation,
 		TextureInsideRT,
+		Limit24BitDepth,
 		AlignSprite,
 		MergeSprite,
 		Mipmap,
+		AccurateAlphaTest,
 		ForceEvenSpritePosition,
 		BilinearUpscale,
 		NativePaletteDraw,
 		EstimateTextureRegion,
+		DrawBuffering,
+		RewriteLargeSTCoords,
+		TargetPageRearranging,
 		PCRTCOffsets,
 		PCRTCOverscan,
 
@@ -65,7 +70,6 @@ namespace GameDatabaseSchema
 		TrilinearFiltering,
 		SkipDrawStart,
 		SkipDrawEnd,
-		HalfBottomOverride,
 		HalfPixelOffset,
 		RoundSprite,
 		NativeScaling,
@@ -79,6 +83,8 @@ namespace GameDatabaseSchema
 		MinimumBlendingLevel,
 		MaximumBlendingLevel,
 		RecommendedBlendingLevel,
+		RecommendedAccurateAlphaTest,
+		RecommendedHWAA1,
 		GetSkipCount,
 		BeforeDraw,
 		MoveHandler,

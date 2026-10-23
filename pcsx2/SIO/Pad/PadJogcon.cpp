@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Pad/PadJogcon.h"
@@ -45,7 +45,7 @@ static const SettingInfo s_settings[] = {
 };
 
 const Pad::ControllerInfo PadJogcon::ControllerInfo = {Pad::ControllerType::Jogcon, "Jogcon",
-	TRANSLATE_NOOP("Pad", "Jogcon"), ICON_PF_GAMEPAD_ALT, s_bindings, s_settings, Pad::VibrationCapabilities::LargeSmallMotors};
+	TRANSLATE_NOOP("Pad", "Jogcon"), ICON_PF_JOGCON, s_bindings, s_settings, Pad::VibrationCapabilities::LargeSmallMotors};
 
 void PadJogcon::ConfigLog()
 {
@@ -324,7 +324,7 @@ const Pad::ControllerInfo& PadJogcon::GetInfo() const
 
 void PadJogcon::Set(u32 index, float value)
 {
-	if (index > Inputs::LENGTH)
+	if (index >= Inputs::LENGTH)
 	{
 		return;
 	}
@@ -374,6 +374,10 @@ void PadJogcon::SetAxisScale(float deadzone, float scale)
 {
 	this->dialDeadzone = deadzone;
 	this->dialScale = scale;
+}
+
+void PadJogcon::SetDiagonalScaleCorrection(bool enabled)
+{
 }
 
 float PadJogcon::GetVibrationScale(u32 motor) const
@@ -448,6 +452,16 @@ u32 PadJogcon::GetButtons() const
 u8 PadJogcon::GetPressure(u32 index) const
 {
 	return 0;
+}
+
+bool PadJogcon::IsAnalogLightEnabled() const
+{
+	return this->analogLight;
+}
+
+bool PadJogcon::IsAnalogLocked() const
+{
+	return this->analogLocked;
 }
 
 bool PadJogcon::Freeze(StateWrapper& sw)

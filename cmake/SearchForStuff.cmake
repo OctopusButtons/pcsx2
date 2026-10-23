@@ -17,8 +17,15 @@ find_package(ZLIB REQUIRED) # v1.3, but Mac uses the SDK version.
 find_package(Zstd 1.5.5 REQUIRED)
 find_package(LZ4 REQUIRED)
 find_package(WebP REQUIRED) # v1.3.2, spews an error on Linux because no pkg-config.
-find_package(SDL2 2.30.4 REQUIRED)
-find_package(Freetype 2.11.1 REQUIRED)
+find_package(SDL3 3.2.6 REQUIRED)
+find_package(Freetype 2.10 REQUIRED) # 2.10 is the first with COLRv0 support, which we need for rendering emoji
+find_package(plutovg 1.1.0 REQUIRED)
+find_package(plutosvg 0.0.7 REQUIRED)
+find_package(ryml REQUIRED)
+find_package(FFMPEG 7.1 COMPONENTS avcodec avformat avutil swresample swscale REQUIRED)
+if (WIN32)
+	find_package(DirectX-Headers 1.618.1 REQUIRED)
+endif()
 
 if(USE_VULKAN)
 	find_package(Shaderc REQUIRED)
@@ -29,25 +36,17 @@ if (WIN32)
 	add_subdirectory(3rdparty/D3D12MemAlloc EXCLUDE_FROM_ALL)
 	add_subdirectory(3rdparty/winpixeventruntime EXCLUDE_FROM_ALL)
 	add_subdirectory(3rdparty/winwil EXCLUDE_FROM_ALL)
-	set(FFMPEG_INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/3rdparty/ffmpeg/include")
 	find_package(Vtune)
 else()
 	find_package(CURL REQUIRED)
 	find_package(PCAP REQUIRED)
 	find_package(Vtune)
 
-	# Use bundled ffmpeg v4.x.x headers if we can't locate it in the system.
-	# We'll try to load it dynamically at runtime.
-	find_package(FFMPEG COMPONENTS avcodec avformat avutil swresample swscale)
-	if(NOT FFMPEG_FOUND)
-		message(WARNING "FFmpeg not found, using bundled headers.")
-		set(FFMPEG_INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/3rdparty/ffmpeg/include")
-	endif()
-
 	## Use CheckLib package to find module
 	include(CheckLib)
 
 	if(UNIX AND NOT APPLE)
+		find_package(Fontconfig REQUIRED)
 		if(LINUX)
 			check_lib(LIBUDEV libudev libudev.h)
 		endif()
@@ -77,7 +76,6 @@ endif()
 set(CMAKE_FIND_FRAMEWORK ${FIND_FRAMEWORK_BACKUP})
 
 add_subdirectory(3rdparty/fast_float EXCLUDE_FROM_ALL)
-add_subdirectory(3rdparty/rapidyaml EXCLUDE_FROM_ALL)
 add_subdirectory(3rdparty/lzma EXCLUDE_FROM_ALL)
 add_subdirectory(3rdparty/libchdr EXCLUDE_FROM_ALL)
 disable_compiler_warnings_for_target(libchdr)
@@ -105,10 +103,21 @@ disable_compiler_warnings_for_target(cubeb)
 disable_compiler_warnings_for_target(speex)
 
 # Find the Qt components that we need.
-find_package(Qt6 6.7.2 COMPONENTS CoreTools Core GuiTools Gui WidgetsTools Widgets LinguistTools REQUIRED)
+if(ENABLE_QT_UI)
+	find_package(Qt6 6.10 COMPONENTS CoreTools Core GuiTools Gui WidgetsTools Widgets LinguistTools REQUIRED)
 
-if(WIN32)
-  add_subdirectory(3rdparty/rainterface EXCLUDE_FROM_ALL)
+	if(NOT WIN32 AND NOT APPLE)
+		if (Qt6_VERSION VERSION_GREATER_EQUAL 6.10.0)
+			find_package(Qt6 COMPONENTS CorePrivate GuiPrivate WidgetsPrivate REQUIRED)
+		endif()
+	endif()
+
+	# The docking system for the debugger.
+	find_package(KDDockWidgets-qt6 2.3.0 REQUIRED)
+endif()
+
+if(WIN32 AND ARCH_X86)
+	add_subdirectory(3rdparty/rainterface EXCLUDE_FROM_ALL)
 endif()
 
 # Demangler for the debugger.
@@ -118,9 +127,9 @@ add_subdirectory(3rdparty/demangler EXCLUDE_FROM_ALL)
 add_subdirectory(3rdparty/ccc EXCLUDE_FROM_ALL)
 
 # Architecture-specific.
-if(_M_X86)
+if(ARCH_X86)
 	add_subdirectory(3rdparty/zydis EXCLUDE_FROM_ALL)
-elseif(_M_ARM64)
+elseif(ARCH_ARM64)
 	add_subdirectory(3rdparty/vixl EXCLUDE_FROM_ALL)
 endif()
 

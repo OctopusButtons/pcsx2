@@ -1,32 +1,26 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 // clang-format off
 
-// MacOS headers define PAGE_SIZE to the size of an x86 page
-#ifdef __APPLE__
-	#include <mach/vm_page_size.h>
-	#undef PAGE_SIZE
-#endif
-
-#define VM_SIZE 4194304u
-#define HALF_VM_SIZE (VM_SIZE / 2u)
-#define PAGE_SIZE 8192u
-#define BLOCK_SIZE 256u
-#define COLUMN_SIZE 64u
-#define BLOCKS_PER_PAGE (PAGE_SIZE / BLOCK_SIZE)
-
-#define MAX_PAGES (VM_SIZE / PAGE_SIZE)
-#define MAX_BLOCKS (VM_SIZE / BLOCK_SIZE)
-#define MAX_COLUMNS (VM_SIZE / COLUMN_SIZE)
-
 //if defined, will send much info in reply to the API title info queri from PCSX2
 //default should be undefined
 //#define GSTITLEINFO_API_FORCE_VERBOSE
 
 #include "GSVector.h"
+
+constexpr u32 VM_SIZE = 4194304u;
+constexpr u32 HALF_VM_SIZE = (VM_SIZE / 2u);
+constexpr u32 GS_PAGE_SIZE = 8192u;
+constexpr u32 GS_BLOCK_SIZE = 256u;
+constexpr u32 GS_COLUMN_SIZE = 64u;
+constexpr u32 GS_BLOCKS_PER_PAGE = (GS_PAGE_SIZE / GS_BLOCK_SIZE);
+
+constexpr u32 GS_MAX_PAGES =  (VM_SIZE / GS_PAGE_SIZE);
+constexpr u32 GS_MAX_BLOCKS = (VM_SIZE / GS_BLOCK_SIZE);
+constexpr u32 GS_MAX_COLUMNS = (VM_SIZE / GS_COLUMN_SIZE);
 
 #pragma pack(push, 1)
 
@@ -205,6 +199,15 @@ enum GS_AFAIL
 	AFAIL_FB_ONLY  = 1,
 	AFAIL_ZB_ONLY  = 2,
 	AFAIL_RGB_ONLY = 3,
+};
+
+enum GS_ALPHA_BITS
+{
+	ALPHA_ABD_CS = 0,
+	ALPHA_ABD_CD = 1,
+	ALPHA_C_AS   = 0,
+	ALPHA_C_AD   = 1,
+	ALPHA_C_FIX  = 2,
 };
 
 enum class GS_MIN_FILTER : uint8_t
@@ -528,6 +531,7 @@ REG_END2
 	__forceinline bool IsOpaque() const { return ((A == B || (C == 2 && FIX == 0)) && D == 0) || (A == 0 && B == D && C == 2 && FIX == 0x80); }
 	__forceinline bool IsOpaque(int amin, int amax) const { return ((A == B || amax == 0) && D == 0) || (A == 0 && B == D && amin == 0x80 && amax == 0x80); }
 	__forceinline bool IsCd() const { return (A == B) && (D == 1); }
+	__forceinline bool IsAdditive() const { return (A == 0 && B == 2 && (C != 2 || FIX != 0) && D == 1); }
 
 	// output will be Cd, Cs is discarded
 	__forceinline bool IsCdOutput() const { return (C == 2 && D != 1 && FIX == 0x00); }
@@ -779,9 +783,6 @@ REG64_(GIFReg, TEST)
 	u32 _PAD1 : 13;
 	u32 _PAD2 : 32;
 REG_END2
-	__forceinline bool DoFirstPass() const { return !ATE || ATST != ATST_NEVER; } // not all pixels fail automatically
-	__forceinline bool DoSecondPass() const { return ATE && ATST != ATST_ALWAYS && AFAIL != AFAIL_KEEP; } // pixels may fail, write fb/z
-	__forceinline bool NoSecondPass() const { return ATE && ATST != ATST_ALWAYS && AFAIL == AFAIL_KEEP; } // pixels may fail, no output
 	__forceinline u32 GetAFAIL(u32 fpsm) const { return (AFAIL == AFAIL_RGB_ONLY && (fpsm & 0xF) != 0) ? static_cast<u32>(AFAIL_FB_ONLY) : AFAIL; } // FB Only when not 32bit Framebuffer
 REG_END2
 

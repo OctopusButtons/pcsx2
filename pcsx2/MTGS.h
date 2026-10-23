@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -54,7 +54,7 @@ namespace MTGS
 	/// the current frame with the correct proportions. Should only be called from the CPU thread.
 	void PresentCurrentFrame();
 
-	// Waits for the GS to empty out the entire ring buffer contents.
+	/// Waits for the GS to empty out the entire ring buffer contents.
 	void WaitGS(bool syncRegs = true, bool weakWait = false, bool isMTVU = false);
 	void ResetGS(bool hardware_reset);
 
@@ -69,7 +69,7 @@ namespace MTGS
 	void RunOnGSThread(AsyncCallType func);
 	void GameChanged();
 	void ApplySettings();
-	void ResizeDisplayWindow(int width, int height, float scale);
+	void ResizeDisplayWindow(u32 width, u32 height, float scale);
 	void UpdateDisplayWindow();
 	void SetVSyncMode(GSVSyncMode mode, bool allow_present_throttle);
 	void UpdateVSyncMode();
@@ -78,6 +78,7 @@ namespace MTGS
 	bool SaveMemorySnapshot(u32 window_width, u32 window_height, bool apply_aspect, bool crop_borders,
 		u32* width, u32* height, std::vector<u32>* pixels);
 	void SetRunIdle(bool enabled);
+	void ResetStats();
 
 	// Size of the ringbuffer as a power of 2 -- size is a multiple of simd128s.
 	// (actual size is 1<<m_RingBufferSizeFactor simd vectors [128-bit values])

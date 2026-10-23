@@ -7,7 +7,6 @@ endif(NOT TOP_CMAKE_WAS_SOURCED)
 
 add_library(common)
 
-# x86emitter sources
 target_sources(common PRIVATE
 	AlignedMalloc.cpp
 	Assertions.cpp
@@ -20,6 +19,7 @@ target_sources(common PRIVATE
 	HostSys.cpp
 	Image.cpp
 	HTTPDownloader.cpp
+	MemoryInterface.cpp
 	MemorySettingsInterface.cpp
 	MD5Digest.cpp
 	PrecompiledHeader.cpp
@@ -34,14 +34,15 @@ target_sources(common PRIVATE
 	Timer.cpp
 	WAVWriter.cpp
 	WindowInfo.cpp
+	YAML.cpp
 )
 
-# x86emitter headers
 target_sources(common PRIVATE
 	AlignedMalloc.h
 	Assertions.h
 	boost_spsc_queue.hpp
 	BitUtils.h
+	Buffer.h
 	ByteSwap.h
 	Console.h
 	CrashHandler.h
@@ -59,10 +60,13 @@ target_sources(common PRIVATE
 	LRUCache.h
 	HeapArray.h
 	HTTPDownloader.h
+	MemoryInterface.h
 	MemorySettingsInterface.h
 	MD5Digest.h
 	MRCHelpers.h
 	Path.h
+	Pcsx2Defs.h
+	Pcsx2Types.h
 	PrecompiledHeader.h
 	ProgressCallback.h
 	ReadbackSpinManager.h
@@ -81,11 +85,12 @@ target_sources(common PRIVATE
 	WAVWriter.h
 	WindowInfo.h
 	WrappedMemCopy.h
+	YAML.h
+	ZipHelpers.h
 )
 
-if(_M_X86)
+if(ARCH_X86)
 	target_sources(common PRIVATE
-		emitter/avx.cpp
 		emitter/bmi.cpp
 		emitter/fpu.cpp
 		emitter/groups.cpp
@@ -125,9 +130,7 @@ if(_M_X86)
 endif()
 
 if(WIN32)
-	enable_language(ASM_MASM)
 	target_sources(common PRIVATE
-		FastJmp.asm
 		HTTPDownloaderWinHTTP.cpp
 		HTTPDownloaderWinHTTP.h
 		StackWalker.cpp
@@ -136,6 +139,16 @@ if(WIN32)
 		Windows/WinHostSys.cpp
 		Windows/WinMisc.cpp
 	)
+
+	if (ARCH_X86)
+		enable_language(ASM_MASM)
+		target_sources(common PRIVATE FastJmp.asm)
+	elseif (ARCH_ARM64)
+		enable_language(ASM_MARMASM)
+		target_sources(common PRIVATE FastJmp_arm64.asm)
+		set_property(SOURCE FastJmp_arm64.asm PROPERTY VS_SETTINGS "PreprocessWithCl=false")
+	endif()
+
 	target_link_libraries(common PUBLIC
 		WIL::WIL
 		winmm
@@ -148,6 +161,7 @@ elseif(APPLE)
 		Darwin/DarwinThreads.cpp
 		Darwin/DarwinMisc.cpp
 		Darwin/DarwinMisc.h
+		Linux/LnxHostSys.cpp
 	)
 	target_compile_options(common PRIVATE -fobjc-arc)
 	target_link_options(common PRIVATE -fobjc-link-runtime)
@@ -173,9 +187,6 @@ else()
 	if(USE_BACKTRACE)
 		target_compile_definitions(common PRIVATE "HAS_LIBBACKTRACE=1")
 		target_link_libraries(common PRIVATE libbacktrace::libbacktrace)
-	endif()
-	if(${CMAKE_SYSTEM_NAME} STREQUAL "FreeBSD")
-		target_link_libraries(common PRIVATE cpuinfo)
 	endif()
 endif()
 
@@ -206,11 +217,13 @@ target_link_libraries(common PRIVATE
 	JPEG::JPEG
 	PNG::PNG
 	WebP::libwebp
+	cpuinfo
 )
 
 target_link_libraries(common PUBLIC
 	fmt::fmt
 	fast_float
+	ryml::ryml
 )
 
 fixup_file_properties(common)

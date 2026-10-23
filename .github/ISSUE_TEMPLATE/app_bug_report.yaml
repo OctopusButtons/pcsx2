@@ -3,6 +3,7 @@ name: Application Bug Report
 description: Found a problem with the application itself (ie. bad file path handling, UX issue)? Help us improve it.
 title: "[BUG]: "
 labels: [Bug]
+type: Bug
 # assignees:
 #   - octocat
 body:
@@ -59,7 +60,7 @@ body:
     attributes:
       label: PCSX2 Revision
       description: "Please ensure you are on the latest version before making an issue"
-      placeholder: "Example: v1.7.1337"
+      placeholder: "Example: v2.5.374"
     validations:
       required: true
   - type: dropdown
@@ -70,6 +71,8 @@ body:
       - Windows 11
       - Windows 10 (64bit)
       - Linux (64bit) - Specify distro below
+      - macOS 26 (Tahoe)
+      - macOS 15 (Sequoia)
       - macOS 14 (Sonoma)
       - macOS 13 (Ventura)
       - macOS 12 (Monterey)

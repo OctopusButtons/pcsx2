@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -38,6 +38,37 @@ private:
 	using OI_Ptr = bool(*)(GSRendererHW& r, GSTexture* rt, GSTexture* ds, GSTextureCache::Source* t); // OI - Before draw
 	using MV_Ptr = bool(*)(GSRendererHW& r); // MV - Move
 
+	// We modify some of the context registers to optimize away unnecessary operations.
+	// Instead of messing with the real context, we copy them and use those instead.
+	struct HWCachedCtx
+	{
+		GIFRegTEX0 TEX0;
+		GIFRegTEXA TEXA;
+		GIFRegCLAMP CLAMP;
+		GIFRegTEST TEST;
+		GIFRegFRAME FRAME;
+		GIFRegZBUF ZBUF;
+
+		__ri bool DepthRead() const { return TEST.ZTE && (TEST.ZTST == ZTST_GEQUAL || TEST.ZTST == ZTST_GREATER); }
+
+		__ri bool DepthWrite() const
+		{
+			// Alpha test, all pixels fail, z buffer is not updated.
+			if (TEST.ATE && TEST.ATST == ATST_NEVER && TEST.AFAIL != AFAIL_ZB_ONLY)
+			{
+				return false;
+			}
+
+			// Depth test enabled, all pixels fail.
+			if (TEST.ZTE && TEST.ZTST == ZTST_NEVER)
+			{
+				return false;
+			}
+
+			return ZBUF.ZMSK == 0 && TEST.ZTE != 0; // ZTE == 0 is bug on the real hardware, write is blocked then
+		}
+	};
+
 	// Require special argument
 	bool OI_BlitFMV(GSTextureCache::Target* _rt, GSTextureCache::Source* t, const GSVector4i& r_draw);
 	bool TryGSMemClear(bool no_rt, bool preserve_rt, bool invalidate_rt, u32 rt_end_bp, bool no_ds,
@@ -60,11 +91,14 @@ private:
 	u32 GetConstantDirectWriteMemClearColor() const;
 	u32 GetConstantDirectWriteMemClearDepth() const;
 	bool IsReallyDithered() const;
-	bool AreAnyPixelsDiscarded() const;
+	bool AreAnyPixelsDiscarded();
 	bool IsDiscardingDstColor();
 	bool IsDiscardingDstRGB();
 	bool IsDiscardingDstAlpha() const;
 	bool TextureCoversWithoutGapsNotEqual();
+
+	using PS_ATST  = GSShader::PS_ATST;
+	using PS_AFAIL = GSShader::PS_AFAIL;
 
 	enum class CLUTDrawTestResult
 	{
@@ -80,6 +114,95 @@ private:
 		SHUFFLE_READWRITE,
 	};
 
+	// Intermediate struct for determining DATE config.
+	struct DATEOptions
+	{
+		bool enabled;
+		bool barrier;
+		bool primid;
+		bool stencil_one;
+	};
+
+	// Internal enum for classifying texture shuffles.
+	enum class TextureShuffleType
+	{
+		None,
+		Copy,
+		Offset,
+		RegionRepeat8,
+		RegionRepeat16,
+		Reverse,
+		Swizzle,
+		SwizzleTex32,
+		TwoPixel,
+		GappedSwizzle,
+		HackShuffle,
+	};
+
+	// Enum for determining which channels to read/write in a texture shuffle.
+	enum TextureShuffleChannels : u32
+	{
+		TextureShuffleChannels_None = 0x0,
+		TextureShuffleChannels_RedToBlue = 0x1,
+		TextureShuffleChannels_BlueToRed = 0x2,
+		TextureShuffleChannels_GreenToAlpha = 0x4,
+		TextureShuffleChannels_AlphaToGreen = 0x8,
+		TextureShuffleChannels_RedCopy = 0x10,
+		TextureShuffleChannels_GreenCopy = 0x20,
+		TextureShuffleChannels_BlueCopy = 0x40,
+		TextureShuffleChannels_AlphaCopy = 0x80,
+		TextureShuffleChannels_BlueToAlpha = 0x100,
+
+		TextureShuffleChannels_ReadRed = TextureShuffleChannels_RedToBlue | TextureShuffleChannels_RedCopy,
+		TextureShuffleChannels_ReadGreen = TextureShuffleChannels_GreenToAlpha | TextureShuffleChannels_GreenCopy,
+		TextureShuffleChannels_ReadBlue = TextureShuffleChannels_BlueToRed | TextureShuffleChannels_BlueCopy |
+		                                  TextureShuffleChannels_BlueToAlpha,
+		TextureShuffleChannels_ReadAlpha = TextureShuffleChannels_AlphaToGreen | TextureShuffleChannels_AlphaCopy,
+
+		TextureShuffleChannels_WriteRed = TextureShuffleChannels_BlueToRed | TextureShuffleChannels_RedCopy,
+		TextureShuffleChannels_WriteGreen = TextureShuffleChannels_AlphaToGreen | TextureShuffleChannels_GreenCopy,
+		TextureShuffleChannels_WriteBlue = TextureShuffleChannels_RedToBlue | TextureShuffleChannels_BlueCopy,
+		TextureShuffleChannels_WriteAlpha = TextureShuffleChannels_GreenToAlpha | TextureShuffleChannels_AlphaCopy |
+		                                    TextureShuffleChannels_BlueToAlpha,
+
+		TextureShuffleChannels_ReadRedGreen = TextureShuffleChannels_ReadRed | TextureShuffleChannels_ReadGreen,
+		TextureShuffleChannels_ReadBlueAlpha = TextureShuffleChannels_ReadBlue | TextureShuffleChannels_ReadAlpha,
+
+		TextureShuffleChannels_WriteRedGreen = TextureShuffleChannels_WriteRed | TextureShuffleChannels_WriteGreen,
+		TextureShuffleChannels_WriteBlueAlpha = TextureShuffleChannels_WriteBlue | TextureShuffleChannels_WriteAlpha,
+
+		TextureShuffleChannels_ShuffleAcross = TextureShuffleChannels_RedToBlue | TextureShuffleChannels_GreenToAlpha |
+		                                       TextureShuffleChannels_BlueToRed | TextureShuffleChannels_AlphaToGreen |
+		                                       TextureShuffleChannels_BlueToAlpha,
+
+		// It's not actually possible to do a C16->C16 texture shuffle of B to A as they are the same group
+		// However you can do it by using C32 and offsetting the target vertices to point to B A, then mask as appropriate.
+		TextureShuffleChannels_SameGroup = TextureShuffleChannels_BlueToAlpha,
+	};
+
+	// Intermediate struct for texture shuffle detection.
+	struct TextureShuffleInfo
+	{
+		TextureShuffleType type = TextureShuffleType::None;
+		TextureShuffleChannels channels = TextureShuffleChannels_None;
+		bool real_16_bit_source = false;
+
+		operator bool() const
+		{
+			return type != TextureShuffleType::None;
+		}
+
+		void Disable()
+		{
+			type = TextureShuffleType::None;
+		}
+
+		bool SameGroupShuffle() const
+		{
+			return (channels & TextureShuffleChannels_SameGroup) != 0;
+		}
+	};
+
 	bool HasEEUpload(GSVector4i r);
 	CLUTDrawTestResult PossibleCLUTDraw();
 	CLUTDrawTestResult PossibleCLUTDrawAggressive();
@@ -92,10 +215,11 @@ private:
 	void DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Target* ds, GSTextureCache::Source* tex, const TextureMinMaxResult& tmm);
 
 	void ResetStates();
-	void SetupIA(float target_scale, float sx, float sy);
+	void HandleFlatShadedVertices();
+	void SetupIA(float target_scale, float sx, float sy, bool req_vert_backup, const bool no_rt);
 	void EmulateTextureShuffleAndFbmask(GSTextureCache::Target* rt, GSTextureCache::Source* tex);
-	bool EmulateChannelShuffle(GSTextureCache::Target* src, bool test_only);
-	void EmulateBlending(int rt_alpha_min, int rt_alpha_max, const bool DATE, bool& DATE_PRIMID, bool& DATE_BARRIER, GSTextureCache::Target* rt,
+	u32 EmulateChannelShuffle(GSTextureCache::Target* src, bool test_only, GSTextureCache::Target* rt = nullptr);
+	void EmulateBlending(int rt_alpha_min, int rt_alpha_max, DATEOptions& date_options, GSTextureCache::Target* rt,
 		bool can_scale_rt_alpha, bool& new_rt_alpha_scale);
 	void CleanupDraw(bool invalidate_temp_src);
 
@@ -108,17 +232,56 @@ private:
 		const TextureMinMaxResult& tmm);
 
 	void EmulateZbuffer(const GSTextureCache::Target* ds);
-	void EmulateATST(float& AREF, GSHWDrawConfig::PSSelector& ps, bool pass_2);
+	void EmulateAA1();
+	static void GetAlphaTestConfigPS(const u32 atst, const u8 aref, const bool invert_test, PS_ATST& ps_atst_out, float& aref_out);
+	void EmulateAlphaTest(DATEOptions& date_options);
+	void EmulateAlphaTestSecondPass();
+	void ConfigureDepthFeedback(bool rov_depth = false);
+
+	void CalculateAlphaRange(GSTextureCache::Target* rt, GSTextureCache::Target* ds, DATEOptions& date_options,
+		int& blend_alpha_min, int& blend_alpha_max, int& rt_new_alpha_min, int& rt_new_alpha_max);
+	void DetermineAlphaScaling(GSTextureCache::Target* rt, GSTextureCache::Source* tex,
+		bool req_source_update, int rt_new_alpha_max, bool& can_scale_rt_alpha, bool& new_scale_rt_alpha);
+
+	bool EmulateDATEEarlyFail(DATEOptions& date, GSTextureCache::Target* rt);
+	void EmulateDATESelectMethod(DATEOptions& date, GSTextureCache::Target* rt, int& blend_alpha_min, int& blend_alpha_max);
+	void EmulateDATEGetConfig(DATEOptions& date, bool scale_rt_alpha, GSDevice::RecycledTexture& temp_ds);
+
+	void EmulateDither();
+
+	void DetermineVSConfig(GSTextureCache::Target* rt, float rtscale, const GSVector2i& rtsize,
+		const GSVector2i& unscaled_size, float& vs_scale_x, float& vs_scale_y);
+	void DetermineBarriers(GSTextureCache::Target* rt, GSTextureCache::Source* tex);
+
+	void GetForcedROVUsage(bool& color_cov, bool& depth_rov); // Whether having color or depth with the current config forces the other.
+	void DetermineROVUsage(GSTextureCache::Target* rt, GSTextureCache::Target* ds); // Heuristics to determine whether to enable/disable ROV
+	void ConfigureROV(bool color_rov, bool depth_rov); // Actual config for ROV
+	void ConvertTextureTypeROV(GSTextureCache::Target* rt, GSTextureCache::Target* ds); // Convert to RW capable textures if needed.
+	void ConvertTextureTypeROVSingle(GSTextureCache::Target* tgt, bool shader_write); // Helper to do the above.
 
 	void SetTCOffset();
-	bool NextDrawHDR() const;
+	bool NextDrawColClip() const;
 	bool IsPossibleChannelShuffle() const;
+	bool IsPageCopy() const;
 	bool NextDrawMatchesShuffle() const;
-	bool IsSplitTextureShuffle(GSTextureCache::Target* rt);
+
+	// Texture shuffle functions.
+	bool IsSplitTextureShuffle(GIFRegTEX0& rt_TEX0, GSVector4i& valid_area);
+	void FixSplitTextureShuffleState();
 	GSVector4i GetSplitTextureShuffleDrawRect() const;
 	u32 GetEffectiveTextureShuffleFbmsk() const;
+	template<u32 primclass, bool fst>
+	TextureShuffleInfo DetectTextureShuffleImpl();
+	void DetectTextureShuffle();
+	void DetectTextureShuffleSecondPass(GSTextureCache::Target* rt, GSTextureCache::Source* tex);
+	template<u32 primclass, bool fst>
+	void ConvertSpriteTextureShuffleImpl(GSTextureCache::Target* rt, GSTextureCache::Source* tex);
+	void ConvertSpriteTextureShuffle(GSTextureCache::Target* rt, GSTextureCache::Source* tex);
+
+	static u32 Convert32BitTo16BitMask(u32 m);
 
 	static GSVector4i GetDrawRectForPages(u32 bw, u32 psm, u32 num_pages);
+	bool IsSinglePageDraw() const;
 	bool TryToResolveSinglePageFramebuffer(GIFRegFRAME& FRAME, bool only_next_draw);
 
 	bool IsSplitClearActive() const;
@@ -127,34 +290,11 @@ private:
 	bool ContinueSplitClear();
 	void FinishSplitClear();
 
+	bool NeedsBlending();
 	bool IsRTWritten();
 	bool IsDepthAlwaysPassing();
 	bool IsUsingCsInBlend();
 	bool IsUsingAsInBlend();
-
-	// We modify some of the context registers to optimize away unnecessary operations.
-	// Instead of messing with the real context, we copy them and use those instead.
-	struct HWCachedCtx
-	{
-		GIFRegTEX0 TEX0;
-		GIFRegCLAMP CLAMP;
-		GIFRegTEST TEST;
-		GIFRegFRAME FRAME;
-		GIFRegZBUF ZBUF;
-
-		__ri bool DepthRead() const { return TEST.ZTE && TEST.ZTST >= 2; }
-
-		__ri bool DepthWrite() const
-		{
-			if (TEST.ATE && TEST.ATST == ATST_NEVER &&
-				TEST.AFAIL != AFAIL_ZB_ONLY) // alpha test, all pixels fail, z buffer is not updated
-			{
-				return false;
-			}
-
-			return ZBUF.ZMSK == 0 && TEST.ZTE != 0; // ZTE == 0 is bug on the real hardware, write is blocked then
-		}
-	};
 
 	// CRC Hacks
 	bool IsBadFrame();
@@ -164,6 +304,11 @@ private:
 	int m_skip = 0;
 	int m_skip_offset = 0;
 
+	bool m_process_texture = false;
+	bool m_downscale_source = false;
+
+	TextureShuffleInfo m_texture_shuffle;
+
 	u32 m_split_texture_shuffle_pages = 0;
 	u32 m_split_texture_shuffle_pages_high = 0;
 	u32 m_split_texture_shuffle_start_FBP = 0;
@@ -172,7 +317,13 @@ private:
 
 	u32 m_last_channel_shuffle_fbmsk = 0;
 	u32 m_last_channel_shuffle_fbp = 0;
+	u32 m_last_channel_shuffle_tbp = 0;
 	u32 m_last_channel_shuffle_end_block = 0;
+	u32 m_channel_shuffle_width = 0;
+	GSVector4i m_channel_shuffle_src_valid = GSVector4i::zero();
+	bool m_full_screen_shuffle = false;
+
+	GSTextureCache::Target* m_last_rt;
 
 	GIFRegFRAME m_split_clear_start = {};
 	GIFRegZBUF m_split_clear_start_Z = {};
@@ -184,6 +335,8 @@ private:
 	float m_userhacks_tcoffset_y = 0.0f;
 
 	GSVector2i m_lod = {}; // Min & Max level of detail
+
+	GIFRegALPHA m_optimized_blend = {}; // Save for ROV setup
 
 	GSHWDrawConfig m_conf = {};
 	HWCachedCtx m_cached_ctx;
@@ -199,6 +352,7 @@ public:
 
 	__fi static GSRendererHW* GetInstance() { return static_cast<GSRendererHW*>(g_gs_renderer.get()); }
 	__fi HWCachedCtx* GetCachedCtx() { return &m_cached_ctx; }
+	__fi u32 GetLastChannelShuffleFBP() { return m_last_channel_shuffle_fbp; }
 	void Destroy() override;
 
 	void UpdateRenderFixes() override;
@@ -208,13 +362,13 @@ public:
 	void Lines2Sprites();
 	bool VerifyIndices();
 	void ExpandLineIndices();
-	void ConvertSpriteTextureShuffle(u32& process_rg, u32& process_ba, bool& shuffle_across, GSTextureCache::Target* rt, GSTextureCache::Source* tex);
 	GSVector4 RealignTargetTextureCoordinate(const GSTextureCache::Source* tex);
-	GSVector4i ComputeBoundingBox(const GSVector2i& rtsize, float rtscale);
+	GSVector4i ComputeBoundingBoxRT(const GSVector2i& rtsize, float rtscale);
+	GSVector4i ComputeBoundingBoxTex(const GSVector2i& texsize, const GSVector4i& coverage, const GSVector4i& region, float texscale);
 	void MergeSprite(GSTextureCache::Source* tex);
 	float GetTextureScaleFactor() override;
-	GSVector2i GetValidSize(const GSTextureCache::Source* tex = nullptr);
-	GSVector2i GetTargetSize(const GSTextureCache::Source* tex = nullptr, const bool can_expand = true);
+	GSVector2i GetValidSize(const GSTextureCache::Source* tex = nullptr, const bool is_shuffle = false);
+	GSVector2i GetTargetSize(const GSTextureCache::Source* tex = nullptr, const bool can_expand = true, const bool is_shuffle = false);
 
 	void Reset(bool hardware_reset) override;
 	void UpdateSettings(const Pcsx2Config::GSOptions& old_config) override;
@@ -229,6 +383,7 @@ public:
 
 	void PurgeTextureCache(bool sources, bool targets, bool hash_cache) override;
 	void ReadbackTextureCache() override;
+
 	GSTexture* LookupPaletteSource(u32 CBP, u32 CPSM, u32 CBW, GSVector2i& offset, float* scale, const GSVector2i& size) override;
 
 	/// Called by the texture cache to know for certain whether there is a channel shuffle.
@@ -257,4 +412,10 @@ public:
 
 	/// Submits a previously set up HLE hardware draw, copying any textures as needed if there's hazards.
 	void EndHLEHardwareDraw(bool force_copy_on_hazard = false);
+
+	/// Compute the drawlist (if not already present) and bounding boxes for the current draw.
+	std::size_t ComputeDrawlistGetSize(float scale);
+
+	/// Does the current draw allow using AA1 coverage (if AA1 is enabled).
+	bool IsCoverageAlphaSupported() override;
 };

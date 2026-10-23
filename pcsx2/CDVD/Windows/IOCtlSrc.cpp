@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "CDVD/CDVDdiscReader.h"
@@ -222,7 +222,7 @@ bool IOCtlSrc::ReadDVDInfo()
 		{
 			Console.Warning("IOCTL_DVD_READ_STRUCTURE not supported");
 		}
-		else if(GetLastError() != ERROR_UNRECOGNIZED_MEDIA) // ERROR_UNRECOGNIZED_MEDIA means probably a CD or no disc
+		else if (GetLastError() != ERROR_UNRECOGNIZED_MEDIA) // ERROR_UNRECOGNIZED_MEDIA means probably a CD or no disc
 		{
 			Console.Warning("IOCTL Unknown Error %d", GetLastError());
 		}

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -28,7 +28,7 @@
 
 class SettingsInterface;
 
-class DisplayWidget;
+class DisplaySurface;
 struct VMBootParameters;
 
 enum class CDVD_SourceType : uint8_t;
@@ -69,7 +69,7 @@ public:
 
 	/// Called back from the GS thread when the display state changes (e.g. fullscreen, render to main).
 	std::optional<WindowInfo> acquireRenderWindow(bool recreate_window);
-	void connectDisplaySignals(DisplayWidget* widget);
+	void connectDisplaySignals(DisplaySurface* widget);
 	void releaseRenderWindow();
 
 	void startBackgroundControllerPollTimer();
@@ -77,7 +77,6 @@ public:
 	void updatePerformanceMetrics(bool force);
 
 public Q_SLOTS:
-	bool confirmMessage(const QString& title, const QString& message);
 	void loadSettings(SettingsInterface& si, std::unique_lock<std::mutex>& lock);
 	void checkForSettingChanges(const Pcsx2Config& old_config);
 	void startFullscreenUI(bool fullscreen);
@@ -87,7 +86,7 @@ public Q_SLOTS:
 	void setVMPaused(bool paused);
 	void shutdownVM(bool save_state = true);
 	void loadState(const QString& filename);
-	void loadStateFromSlot(qint32 slot);
+	void loadStateFromSlot(qint32 slot, bool load_backup = false);
 	void saveState(const QString& filename);
 	void saveStateToSlot(qint32 slot);
 	void toggleFullscreen();
@@ -112,17 +111,15 @@ public Q_SLOTS:
 	void queueSnapshot(quint32 gsdump_frames);
 	void beginCapture(const QString& path);
 	void endCapture();
-	void setAudioOutputVolume(int volume, int fast_forward_volume);
-	void setAudioOutputMuted(bool muted);
-	
+
 Q_SIGNALS:
-	bool messageConfirmed(const QString& title, const QString& message);
 	void statusMessage(const QString& message);
 
 	std::optional<WindowInfo> onAcquireRenderWindowRequested(bool recreate_window, bool fullscreen, bool render_to_main, bool surfaceless);
 	void onResizeRenderWindowRequested(qint32 width, qint32 height);
 	void onReleaseRenderWindowRequested();
 	void onMouseModeRequested(bool relative_mode, bool hide_cursor);
+	void onMouseLockRequested(bool state);
 	void onFullscreenUIStateChange(bool running);
 
 	/// Called when the VM is starting initialization, but has not been completed yet.
@@ -168,10 +165,6 @@ Q_SIGNALS:
 	/// Called when hardcore mode is enabled or disabled.
 	void onAchievementsHardcoreModeChanged(bool enabled);
 
-	/// Big Picture UI requests.
-	void onCoverDownloaderOpenRequested();
-	void onCreateMemoryCardOpenRequested();
-
 	/// Called when video capture starts/stops.
 	void onCaptureStarted(const QString& filename);
 	void onCaptureStopped();
@@ -195,7 +188,7 @@ private:
 private Q_SLOTS:
 	void stopInThread();
 	void doBackgroundControllerPoll();
-	void onDisplayWindowResized(int width, int height, float scale);
+	void onDisplayWindowResized(u32 width, u32 height, float scale);
 	void onApplicationStateChanged(Qt::ApplicationState state);
 	void redrawDisplayWindow();
 
@@ -219,11 +212,16 @@ private:
 	bool m_was_paused_by_focus_loss = false;
 
 	float m_last_speed = 0.0f;
+	float m_last_gpu_usage = 0.0f;
 	float m_last_game_fps = 0.0f;
 	float m_last_video_fps = 0.0f;
 	int m_last_internal_width = 0;
 	int m_last_internal_height = 0;
+	float m_last_upscale = 0.0f;
+	u32 m_last_volume = 0;
+	bool m_last_muted = false;
 	GSRendererType m_last_renderer = GSRendererType::Auto;
+	LimiterModeType m_last_limiter_mode = LimiterModeType::Nominal;
 };
 
 extern EmuThread* g_emu_thread;
@@ -244,12 +242,6 @@ namespace QtHost
 
 	/// Sets the icon theme, based on the current style (light/dark).
 	void SetIconThemeFromStyle();
-
-	/// Sets batch mode (exit after game shutdown).
-	bool InBatchMode();
-
-	/// Sets NoGUI mode (implys batch mode, does not display main window, exits on shutdown).
-	bool InNoGUIMode();
 
 	/// Returns true if the calling thread is the UI thread.
 	bool IsOnUIThread();
@@ -284,6 +276,9 @@ namespace QtHost
 	/// Saves a game settings interface.
 	bool SaveGameSettings(SettingsInterface* sif, bool delete_if_empty);
 
+	/// Downloads the specified URL into memory.
+	std::optional<bool> DownloadFile(QWidget* parent, const QString& title, std::string url, std::vector<u8>* data);
+
 	/// Downloads the specified URL to the provided path.
 	bool DownloadFile(QWidget* parent, const QString& title, std::string url, const std::string& path);
 
@@ -298,4 +293,10 @@ namespace QtHost
 
 	/// Compare strings in the locale of the current UI language
 	int LocaleSensitiveCompare(QStringView lhs, QStringView rhs);
+
+	/// Determines whether or not requests to enter/exit fullscreen mode should
+	/// be ignored. This is a hack so that we don't destroy a dialog box while
+	/// inside its exec function, which would cause a crash.
+	void LockVMWithDialog();
+	void UnlockVMWithDialog();
 } // namespace QtHost

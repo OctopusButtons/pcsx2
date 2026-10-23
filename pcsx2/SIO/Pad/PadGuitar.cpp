@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Pad/PadGuitar.h"
@@ -258,7 +258,7 @@ const Pad::ControllerInfo& PadGuitar::GetInfo() const
 
 void PadGuitar::Set(u32 index, float value)
 {
-	if (index > Inputs::LENGTH)
+	if (index >= Inputs::LENGTH)
 	{
 		return;
 	}
@@ -338,6 +338,10 @@ void PadGuitar::SetAxisScale(float deadzone, float scale)
 	this->whammyAxisScale = scale;
 }
 
+void PadGuitar::SetDiagonalScaleCorrection(bool enabled)
+{
+}
+
 float PadGuitar::GetVibrationScale(u32 motor) const
 {
 	return 0;
@@ -400,6 +404,16 @@ u8 PadGuitar::GetPressure(u32 index) const
 		return whammy;
 	
 	return 0;
+}
+
+bool PadGuitar::IsAnalogLightEnabled() const
+{
+	return this->analogLight;
+}
+
+bool PadGuitar::IsAnalogLocked() const
+{
+	return this->analogLocked;
 }
 
 bool PadGuitar::Freeze(StateWrapper& sw)

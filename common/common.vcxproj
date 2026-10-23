@@ -18,6 +18,7 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
     <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\marmasm.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets">
     <Import Project="vsprops\common.props" />
@@ -32,6 +33,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(SolutionDir)3rdparty\cpuinfo\include</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(SolutionDir)3rdparty\fast_float\include</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(SolutionDir)3rdparty\fmt\include</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(SolutionDir)3rdparty\jpgd</AdditionalIncludeDirectories>
@@ -39,6 +41,7 @@
       <ForcedIncludeFiles>PrecompiledHeader.h</ForcedIncludeFiles>
       <PrecompiledHeaderFile>PrecompiledHeader.h</PrecompiledHeaderFile>
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
+      <PreprocessorDefinitions>C4_NO_DEBUG_BREAK;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -49,7 +52,7 @@
     <ClCompile Include="DynamicLibrary.cpp" />
     <ClCompile Include="Error.cpp" />
     <ClCompile Include="FastJmp.cpp">
-      <ExcludedFromBuild Condition="'$(Platform)'!='ARM64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild>true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="FileSystem.cpp" />
     <ClCompile Include="Image.cpp" />
@@ -59,6 +62,7 @@
     </ClCompile>
     <ClCompile Include="HTTPDownloaderWinHTTP.cpp" />
     <ClCompile Include="MD5Digest.cpp" />
+    <ClCompile Include="MemoryInterface.cpp" />
     <ClCompile Include="MemorySettingsInterface.cpp" />
     <ClCompile Include="ProgressCallback.cpp" />
     <ClCompile Include="ReadbackSpinManager.cpp" />
@@ -70,6 +74,7 @@
     <ClCompile Include="Timer.cpp" />
     <ClCompile Include="WAVWriter.cpp" />
     <ClCompile Include="WindowInfo.cpp" />
+    <ClCompile Include="YAML.cpp" />
     <ClCompile Include="Perf.cpp" />
     <ClCompile Include="PrecompiledHeader.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
@@ -79,9 +84,6 @@
     <ClCompile Include="Windows\WinThreads.cpp" />
     <ClCompile Include="HostSys.cpp" />
     <ClCompile Include="Semaphore.cpp" />
-    <ClCompile Include="emitter\avx.cpp">
-      <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
-    </ClCompile>
     <ClCompile Include="emitter\bmi.cpp">
       <ExcludedFromBuild Condition="'$(Platform)'=='ARM64'">true</ExcludedFromBuild>
     </ClCompile>
@@ -116,6 +118,12 @@
     </MASM>
   </ItemGroup>
   <ItemGroup>
+    <MARMASM Include="FastJmp_arm64.asm">
+      <ExcludedFromBuild Condition="'$(Platform)'!='ARM64'">true</ExcludedFromBuild>
+      <PreprocessWithCl>false</PreprocessWithCl>
+    </MARMASM>
+  </ItemGroup>
+  <ItemGroup>
     <ClInclude Include="BitUtils.h" />
     <ClInclude Include="AlignedMalloc.h" />
     <ClInclude Include="ByteSwap.h" />
@@ -140,6 +148,7 @@
     </ClInclude>
     <ClInclude Include="HTTPDownloaderWinHTTP.h" />
     <ClInclude Include="MD5Digest.h" />
+    <ClInclude Include="MemoryInterface.h" />
     <ClInclude Include="MemorySettingsInterface.h" />
     <ClInclude Include="ProgressCallback.h" />
     <ClInclude Include="ScopedGuard.h" />
@@ -159,7 +168,9 @@
     <ClInclude Include="Timer.h" />
     <ClInclude Include="WAVWriter.h" />
     <ClInclude Include="WindowInfo.h" />
+    <ClInclude Include="YAML.h" />
     <ClInclude Include="Threading.h" />
+    <ClInclude Include="EnumOps.h" />
     <ClInclude Include="emitter\implement\avx.h" />
     <ClInclude Include="emitter\implement\bmi.h" />
     <ClInclude Include="emitter\instructions.h" />
@@ -190,5 +201,6 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\marmasm.targets" />
   </ImportGroup>
 </Project>

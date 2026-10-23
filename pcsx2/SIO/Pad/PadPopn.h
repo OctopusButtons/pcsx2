@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -50,8 +50,6 @@ private:
 
 	u32 buttons = 0xffffffffu;
 	Analogs analogs;
-	bool analogLight = false;
-	bool analogLocked = false;
 	// Analog button can be held without changing its state.
 	// We track here if it is currently held down, to avoid flipping in
 	// and out of analog mode every frame.
@@ -98,6 +96,7 @@ public:
 	void SetRawAnalogs(const std::tuple<u8, u8> left, const std::tuple<u8, u8> right) override;
 	void SetRawPressureButton(u32 index, const std::tuple<bool, u8> value) override;
 	void SetAxisScale(float deadzone, float scale) override;
+	void SetDiagonalScaleCorrection(bool enabled) override;
 	float GetVibrationScale(u32 motor) const override;
 	void SetVibrationScale(u32 motor, float scale) override;
 	float GetPressureModifier() const override;
@@ -111,6 +110,8 @@ public:
 	std::tuple<u8, u8> GetRawRightAnalog() const override;
 	u32 GetButtons() const override;
 	u8 GetPressure(u32 index) const override;
+	bool IsAnalogLightEnabled() const override;
+	bool IsAnalogLocked() const override;
 	
 	bool Freeze(StateWrapper& sw) override;
 

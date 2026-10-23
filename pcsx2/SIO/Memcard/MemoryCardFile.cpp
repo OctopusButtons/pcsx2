@@ -1,10 +1,11 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Memcard/MemoryCardFile.h"
 
 #include "SIO/Memcard/MemoryCardFolder.h"
 #include "SIO/Sio.h"
+#include <SIO/SioTypes.h>
 
 #include "common/Assertions.h"
 #include "common/Console.h"
@@ -18,6 +19,7 @@
 
 #include "Config.h"
 #include "Host.h"
+#include "VMManager.h"
 #include "IconsPromptFont.h"
 
 #include "fmt/format.h"
@@ -38,7 +40,7 @@ bool FileMcd_Open = false;
 // https://sourceforge.net/p/mymc-opl/code/ci/master/tree/ps2mc_ecc.py
 // Public domain license
 
-static u32 CalculateECC(u8* buf)
+static u32 CalculateECC(const u8* buf)
 {
 	const u8 parity_table[256] = {0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1,
 		0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0,
@@ -76,7 +78,7 @@ static u32 CalculateECC(u8* buf)
 		}
 	}
 
-	return column_parity | (line_parity_0 << 8) | (line_parity_1 << 16);
+	return column_parity | ((line_parity_0 & 0x7F) << 8) | (line_parity_1 << 16);
 }
 
 static bool ConvertNoECCtoRAW(const char* file_in, const char* file_out)
@@ -107,8 +109,9 @@ static bool ConvertNoECCtoRAW(const char* file_in, const char* file_out)
 				return false;
 		}
 
-		u32 nullbytes = 0;
-		if (std::fwrite(&nullbytes, sizeof(nullbytes), 1, fout.get()) != 1)
+		// unwritten spare reads back erased
+		const u32 unused = 0xffffffff;
+		if (std::fwrite(&unused, sizeof(unused), 1, fout.get()) != 1)
 			return false;
 	}
 
@@ -609,7 +612,7 @@ void FileMcd_EmuOpen()
 
 
 	Mcd::impl.Open();
-	Mcd::implFolder.SetFiltering(EmuConfig.McdFolderAutoManage);
+	Mcd::implFolder.SetFiltering(true);
 	Mcd::implFolder.Open();
 }
 
@@ -634,6 +637,65 @@ void FileMcd_Reopen(std::string new_serial)
 	FileMcd_SetType();
 	sioSetGameSerial(new_serial);
 	FileMcd_EmuOpen();
+}
+
+static bool FileMcd_IsAutoEjecting()
+{
+	for (size_t port = 0; port < SIO::PORTS; ++port)
+	{
+		for (size_t slot = 0; slot < SIO::SLOTS; ++slot)
+		{
+			if (mcds[port][slot].autoEjectTicks > 0)
+			{
+				return true; // Auto-eject is active
+			}
+		}
+	}
+	return false; // No auto-eject active
+}
+
+void FileMcd_Swap()
+{
+	if (MemcardBusy::IsBusy())
+	{
+		Host::AddIconOSDMessage("MemoryCardSwap_Busy", ICON_PF_MEMORY_CARD, TRANSLATE_SV("MemoryCardSwap_Busy", "Memory cards are busy. Can't swap right now."));
+		return;
+	}
+
+	// Check if auto-eject is active
+	if (FileMcd_IsAutoEjecting())
+	{
+		Host::AddIconOSDMessage("MemoryCardSwap_AutoEject", ICON_PF_MEMORY_CARD, TRANSLATE_SV("MemoryCardSwap_AutoEject", "Memory cards are being auto-ejected. Can't swap right now."));
+		return;
+	}
+
+	const std::string card1Filename = Host::GetStringSettingValue("MemoryCards", "Slot1_Filename");
+	const std::string card2Filename = Host::GetStringSettingValue("MemoryCards", "Slot2_Filename");
+
+	// Copy each McdOptions to local memory
+	Pcsx2Config::McdOptions firstSlot = EmuConfig.Mcd[0];
+	Pcsx2Config::McdOptions secondSlot = EmuConfig.Mcd[1];
+
+	if (!firstSlot.Enabled || !secondSlot.Enabled || card1Filename.empty() || card2Filename.empty())
+	{
+		Host::AddIconOSDMessage("MemoryCardSwap_EmptySlot", ICON_PF_MEMORY_CARD, TRANSLATE_SV("MemoryCard_EmptySlot", "Both slots must have a card selected to swap."));
+		return;
+	}
+
+	// Swap them
+	Host::SetBaseStringSettingValue("MemoryCards", "Slot1_Filename", card2Filename.c_str());
+	Host::SetBaseStringSettingValue("MemoryCards", "Slot2_Filename", card1Filename.c_str());
+	Host::CommitBaseSettingChanges();
+	VMManager::ApplySettings();
+	EmuConfig.Mcd[0] = secondSlot;
+	EmuConfig.Mcd[1] = firstSlot;
+
+	// Reopen them
+	FileMcd_EmuClose();
+	FileMcd_SetType();
+	FileMcd_EmuOpen();
+	AutoEject::SetAll();
+	Host::AddIconOSDMessage("MemoryCardSwap", ICON_PF_MEMORY_CARD, fmt::format(TRANSLATE_FS("MemoryCardSwap", "Memory Cards have been swapped.\nSlot 1: {}\nSlot 2: {}"), EmuConfig.Mcd[0].Filename, EmuConfig.Mcd[1].Filename), Host::OSD_INFO_DURATION);
 }
 
 s32 FileMcd_IsPresent(uint port, uint slot)
@@ -762,7 +824,7 @@ int FileMcd_ReIndex(uint port, uint slot, const std::string& filter)
 		//	return Mcd::impl.ReIndex( combinedSlot, filter );
 		//	break;
 		case MemoryCardType::Folder:
-			if (!Mcd::implFolder.ReIndex(combinedSlot, EmuConfig.McdFolderAutoManage, filter))
+			if (!Mcd::implFolder.ReIndex(combinedSlot, true, filter))
 				return -1;
 			break;
 		default:
@@ -794,7 +856,7 @@ static MemoryCardFileType GetMemoryCardFileTypeFromSize(s64 size)
 		return MemoryCardFileType::Unknown;
 }
 
-static bool IsMemoryCardFolder(const std::string& path)
+static bool FileMcd_IsFolder(const std::string& path)
 {
 	const std::string superblock_path(Path::Combine(path, s_folder_mem_card_id_file));
 	return FileSystem::FileExists(superblock_path.c_str());
@@ -825,6 +887,36 @@ bool FileMcd_IsMemoryCardFormatted(std::FILE* fp)
 
 	return (std::memcmp(data, formatted_string, sizeof(formatted_string) - 1) == 0 ||
 			std::memcmp(data, formatted_psx, sizeof(formatted_psx) - 1) == 0);
+}
+
+static bool IsNoECCSize(s64 size)
+{
+	return (size == _8mb || size == _16mb || size == _32mb || size == _64mb);
+}
+
+bool FileMcd_InsertECC(std::vector<u8>& buffer)
+{
+	if (!IsNoECCSize(static_cast<s64>(buffer.size())))
+		return false;
+
+	const size_t pages = buffer.size() / FolderMemoryCard::PageSize;
+	std::vector<u8> raw(pages * FolderMemoryCard::PageSizeRaw, 0xff);
+
+	for (size_t page = 0; page < pages; page++)
+	{
+		const u8* src = &buffer[page * FolderMemoryCard::PageSize];
+		u8* dst = &raw[page * FolderMemoryCard::PageSizeRaw];
+		std::memcpy(dst, src, FolderMemoryCard::PageSize);
+
+		for (int j = 0; j < 4; j++)
+		{
+			const u32 checksum = CalculateECC(&src[j * 128]);
+			std::memcpy(&dst[FolderMemoryCard::PageSize + (j * 3)], &checksum, 3);
+		}
+	}
+
+	buffer = std::move(raw);
+	return true;
 }
 
 std::vector<AvailableMcdInfo> FileMcd_GetAvailableCards(bool include_in_use_cards)
@@ -862,14 +954,14 @@ std::vector<AvailableMcdInfo> FileMcd_GetAvailableCards(bool include_in_use_card
 
 		if (fd.Attributes & FILESYSTEM_FILE_ATTRIBUTE_DIRECTORY)
 		{
-			if (!IsMemoryCardFolder(fd.FileName))
+			if (!FileMcd_IsFolder(fd.FileName))
 				continue;
 
 			FolderMemoryCard sourceFolderMemoryCard;
 			Pcsx2Config::McdOptions config;
 			config.Enabled = true;
 			config.Type = MemoryCardType::Folder;
-			sourceFolderMemoryCard.Open(fd.FileName, config, (8 * 1024 * 1024) / FolderMemoryCard::ClusterSize, EmuConfig.McdFolderAutoManage, "");
+			sourceFolderMemoryCard.Open(fd.FileName, config, (8 * 1024 * 1024) / FolderMemoryCard::ClusterSize, true, "");
 
 			mcds.push_back({std::move(basename), std::move(fd.FileName), fd.ModificationTime,
 				MemoryCardType::Folder, MemoryCardFileType::Unknown, 0u, sourceFolderMemoryCard.IsFormatted()});
@@ -887,6 +979,7 @@ std::vector<AvailableMcdInfo> FileMcd_GetAvailableCards(bool include_in_use_card
 		}
 	}
 
+	std::sort(mcds.begin(), mcds.end(), [](auto& a, auto& b) { return a.name < b.name; });
 	return mcds;
 }
 
@@ -903,7 +996,7 @@ std::optional<AvailableMcdInfo> FileMcd_GetCardInfo(const std::string_view name)
 
 	if (sd.Attributes & FILESYSTEM_FILE_ATTRIBUTE_DIRECTORY)
 	{
-		if (IsMemoryCardFolder(path))
+		if (FileMcd_IsFolder(path))
 		{
 			ret = {std::move(basename), std::move(path), sd.ModificationTime,
 				MemoryCardType::Folder, MemoryCardFileType::Unknown, 0u, true};

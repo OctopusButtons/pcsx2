@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "ColorPickerButton.h"
@@ -29,7 +29,7 @@ void ColorPickerButton::setColor(u32 rgb)
 
 void ColorPickerButton::updateBackgroundColor()
 {
-	setStyleSheet(QStringLiteral("background-color: #%1;").arg(static_cast<uint>(m_color), 8, 16, QChar('0')));
+	setStyleSheet(QStringLiteral("background-color: #%1;").arg(static_cast<uint>(m_color), 6, 16, QChar('0')));
 }
 
 void ColorPickerButton::onClicked()
@@ -51,3 +51,5 @@ void ColorPickerButton::onClicked()
 	updateBackgroundColor();
 	emit colorChanged(new_rgb);
 }
+
+#include "moc_ColorPickerButton.cpp"

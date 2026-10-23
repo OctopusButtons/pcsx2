@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Assertions.h"
@@ -6,6 +6,7 @@
 #include "common/ScopedGuard.h"
 
 #ifdef _WIN32
+#include "common/RedtapeWindows.h"
 #include <winsock2.h>
 #include <iphlpapi.h>
 #elif defined(__POSIX__)
@@ -20,6 +21,7 @@
 #include "sockets.h"
 #include "AdapterUtils.h"
 #include "DEV9.h"
+#include "Host.h"
 
 #include "Sessions/ICMP_Session/ICMP_Session.h"
 #include "Sessions/TCP_Session/TCP_Session.h"
@@ -45,7 +47,7 @@ std::vector<AdapterEntry> SocketAdapter::GetAdapters()
 	std::vector<AdapterEntry> nic;
 	AdapterEntry autoEntry;
 	autoEntry.type = Pcsx2Config::DEV9Options::NetApi::Sockets;
-	autoEntry.name = "Auto";
+	autoEntry.name = TRANSLATE_STR("DEV9", "Auto");
 	autoEntry.guid = "Auto";
 	nic.push_back(autoEntry);
 
@@ -203,14 +205,19 @@ bool SocketAdapter::recv(NetPacket* pkt)
 
 	ScopedGuard cleanup([&]() {
 		// Garbage collect closed connections
-		for (BaseSession* s : deleteQueueRecvThread)
-			delete s;
-		deleteQueueRecvThread.clear();
+		if (deleteQueueRecvThread.size() != 0)
+		{
+			std::lock_guard deletelock(deleteRecvSentry);
+			for (BaseSession* s : deleteQueueRecvThread)
+				delete s;
+			deleteQueueRecvThread.clear();
+		}
 	});
 
 	EthernetFrame* bFrame;
 	if (!vRecBuffer.Dequeue(&bFrame))
 	{
+		std::lock_guard deletelock(deleteSendSentry);
 		std::vector<ConnectionKey> keys = connections.GetKeys();
 		for (size_t i = 0; i < keys.size(); i++)
 		{
@@ -259,9 +266,13 @@ bool SocketAdapter::send(NetPacket* pkt)
 	pxAssert(std::this_thread::get_id() == sendThreadId);
 	ScopedGuard cleanup([&]() {
 		// Garbage collect closed connections
-		for (BaseSession* s : deleteQueueSendThread)
-			delete s;
-		deleteQueueSendThread.clear();
+		if (deleteQueueSendThread.size() != 0)
+		{
+			std::lock_guard deletelock(deleteSendSentry);
+			for (BaseSession* s : deleteQueueSendThread)
+				delete s;
+			deleteQueueSendThread.clear();
+		}
 	});
 
 	EthernetFrame frame(pkt);
@@ -375,6 +386,7 @@ bool SocketAdapter::SendIP(IP_Packet* ipPkt)
 	Key.ip = ipPkt->destinationIP;
 	Key.protocol = ipPkt->protocol;
 
+	std::lock_guard deletelock(deleteRecvSentry);
 	switch (ipPkt->protocol) //(Prase Payload)
 	{
 		case (u8)IP_Type::ICMP:

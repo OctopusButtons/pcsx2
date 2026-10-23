@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/FileSystem.h"
@@ -9,6 +9,7 @@
 #include <QtWidgets/QPushButton>
 
 #include "Settings/MemoryCardCreateDialog.h"
+#include "QtUtils.h"
 
 #include "pcsx2/SIO/Memcard/MemoryCardFile.h"
 
@@ -16,7 +17,7 @@ MemoryCardCreateDialog::MemoryCardCreateDialog(QWidget* parent /* = nullptr */)
 	: QDialog(parent)
 {
 	m_ui.setupUi(this);
-	m_ui.icon->setPixmap(QIcon::fromTheme("memcard-line").pixmap(m_ui.icon->width()));
+	QtUtils::SetScalableIcon(m_ui.icon, QIcon::fromTheme(QStringLiteral("memcard-line")), QSize(m_ui.icon->width(), m_ui.icon->width()));
 
 	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
@@ -98,9 +99,8 @@ void MemoryCardCreateDialog::updateState()
 void MemoryCardCreateDialog::createCard()
 {
 	const QString name = m_ui.name->text();
-	const std::string name_str = QStringLiteral("%1.%2").arg(name)
-		.arg((m_fileType == MemoryCardFileType::PS1) ? QStringLiteral("mcr") : QStringLiteral("ps2"))
-							   .toStdString();
+	const QString type = (m_fileType == MemoryCardFileType::PS1) ? QStringLiteral("mcr") : QStringLiteral("ps2");
+	const std::string name_str = QStringLiteral("%1.%2").arg(name).arg(type).toStdString();
 	if (!Path::IsValidFileName(name_str, false))
 	{
 		QMessageBox::critical(this, tr("Create Memory Card"),
@@ -122,7 +122,7 @@ void MemoryCardCreateDialog::createCard()
 		return;
 	}
 
-#ifdef  _WIN32
+#ifdef _WIN32
 	if (m_type == MemoryCardType::File)
 	{
 		const std::string fullPath = Path::Combine(EmuFolders::MemoryCards, name_str);
@@ -133,3 +133,5 @@ void MemoryCardCreateDialog::createCard()
 	QMessageBox::information(this, tr("Create Memory Card"), tr("Memory Card '%1' created.").arg(name));
 	accept();
 }
+
+#include "moc_MemoryCardCreateDialog.cpp"

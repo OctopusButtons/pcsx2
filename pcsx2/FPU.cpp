@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -249,7 +249,6 @@ void CTC1() {
 
 void CVT_S() {
 	_FdValf_ = (float)_FsValSl_;
-	_FdValf_ = fpuDouble( _FdValUl_ );
 }
 
 void CVT_W() {

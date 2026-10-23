@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Counters.h"
@@ -23,8 +23,6 @@ bool SaveStateBase::InputRecordingFreeze()
 
 #include "common/FileSystem.h"
 #include "common/StringUtil.h"
-#include "Counters.h"
-#include "SaveState.h"
 #include "VMManager.h"
 #include "Host.h"
 #include "ImGui/ImGuiOverlays.h"
@@ -32,7 +30,7 @@ bool SaveStateBase::InputRecordingFreeze()
 #include "GameDatabase.h"
 #include "fmt/format.h"
 #include "GS.h"
-#include "Host.h"
+#include "SIO/Pad/Pad.h"
 
 InputRecording g_InputRecording;
 
@@ -56,8 +54,9 @@ bool InputRecording::create(const std::string& fileName, const bool fromSaveStat
 		m_initial_load_complete = true;
 		m_watching_for_rerecords = true;
 		setStartingFrame(g_FrameCount);
-		// TODO - error handling
-		VMManager::SaveState(savestatePath.c_str());
+		VMManager::SaveState(savestatePath.c_str(), true, false, [](const std::string& error) {
+			SaveState_ReportSaveErrorOSD(error, std::nullopt);
+		});
 	}
 	else
 	{
@@ -93,7 +92,7 @@ bool InputRecording::play(const std::string& filename)
 		if (!FileSystem::FileExists(savestatePath.c_str()))
 		{
 			InputRec::consoleLog(fmt::format("Could not locate savestate file at location - {}", savestatePath));
-			InputRec::log(TRANSLATE_STR("InputRecording", "Savestate load failed for input recording"), Host::OSD_ERROR_DURATION);
+			InputRec::log(TRANSLATE_STR("InputRecording", "Failed to load state for input recording"), Host::OSD_ERROR_DURATION);
 			m_file.close();
 			return false;
 		}
@@ -103,7 +102,7 @@ bool InputRecording::play(const std::string& filename)
 		const auto loaded = VMManager::LoadState(savestatePath.c_str());
 		if (!loaded)
 		{
-			InputRec::log(TRANSLATE_STR("InputRecording", "Savestate load failed for input recording, unsupported version?"), Host::OSD_ERROR_DURATION);
+			InputRec::log(TRANSLATE_STR("InputRecording", "Failed to load state for input recording, unsupported version?"), Host::OSD_ERROR_DURATION);
 			m_file.close();
 			m_is_active = false;
 			return false;
@@ -138,6 +137,7 @@ void InputRecording::closeActiveFile()
 	if (m_file.close())
 	{
 		m_is_active = false;
+		Pad::ResetAllControllerInputs();
 		InputRec::log(TRANSLATE_STR("InputRecording", "Input recording stopped"), Host::OSD_ERROR_DURATION);
 		MTGS::PresentCurrentFrame();
 	}
@@ -343,7 +343,7 @@ void InputRecording::adjustFrameCounterOnReRecord(u32 newFrameCounter)
 	if (newFrameCounter > m_starting_frame + m_file.getTotalFrames())
 	{
 		InputRec::consoleLog("Warning, you've loaded PCSX2 emulation to a point after the end of the original recording. This should be avoided.");
-		InputRec::consoleLog("Savestate's framecount has been ignored, using the max length of the recording instead.");
+		InputRec::consoleLog("Save state's framecount has been ignored, using the max length of the recording instead.");
 		m_frame_counter = m_file.getTotalFrames();
 		if (getControls().isReplaying())
 		{
@@ -354,7 +354,7 @@ void InputRecording::adjustFrameCounterOnReRecord(u32 newFrameCounter)
 	if (newFrameCounter < m_starting_frame)
 	{
 		InputRec::consoleLog("Warning, you've loaded PCSX2 emulation to a point before the start of the original recording. This should be avoided.");
-		InputRec::consoleLog("Savestate's framecount has been ignored, starting from the beginning in replay mode.");
+		InputRec::consoleLog("Save state's framecount has been ignored, starting from the beginning in replay mode.");
 		m_frame_counter = 0;
 		if (getControls().isRecording())
 		{
@@ -395,8 +395,7 @@ void InputRecording::InformGSThread()
 	TinyString frame_data_message = TinyString::from_format(TRANSLATE_FS("InputRecording", "Frame: {}/{} ({})"), g_InputRecording.getFrameCounter(), g_InputRecording.getData().getTotalFrames(), g_InputRecording.getFrameCounterStateless());
 	TinyString undo_count_message = TinyString::from_format(TRANSLATE_FS("InputRecording", "Undo Count: {}"), g_InputRecording.getData().getUndoCount());
 
-	MTGS::RunOnGSThread([recording_active_message, frame_data_message, undo_count_message](bool is_recording = g_InputRecording.getControls().isRecording())
-	{
+	MTGS::RunOnGSThread([recording_active_message, frame_data_message, undo_count_message](bool is_recording = g_InputRecording.getControls().isRecording()) {
 		g_InputRecordingData.is_recording = is_recording;
 		g_InputRecordingData.recording_active_message = recording_active_message;
 		g_InputRecordingData.frame_data_message = frame_data_message;

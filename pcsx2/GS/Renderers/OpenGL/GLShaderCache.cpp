@@ -1,8 +1,9 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/Renderers/OpenGL/GLShaderCache.h"
 #include "GS/GS.h"
+#include "GS/GSShaderCompileIndicator.h"
 
 #include "Config.h"
 #include "ShaderCacheVersion.h"
@@ -366,6 +367,8 @@ bool GLShaderCache::WriteToBlobFile(const CacheIndexKey& key, const std::vector<
 std::optional<GLProgram> GLShaderCache::CompileProgram(const std::string_view vertex_shader,
 	const std::string_view fragment_shader, const PreLinkCallback& callback, bool set_retrievable)
 {
+	const GSShaderCompileIndicator::CompileTimer compile_timer;
+
 	GLProgram prog;
 	if (!prog.Compile(vertex_shader, fragment_shader))
 		return std::nullopt;
@@ -385,6 +388,8 @@ std::optional<GLProgram> GLShaderCache::CompileProgram(const std::string_view ve
 std::optional<GLProgram> GLShaderCache::CompileComputeProgram(
 	const std::string_view glsl, const PreLinkCallback& callback, bool set_retrievable)
 {
+	const GSShaderCompileIndicator::CompileTimer compile_timer;
+
 	GLProgram prog;
 	if (!prog.CompileCompute(glsl))
 		return std::nullopt;

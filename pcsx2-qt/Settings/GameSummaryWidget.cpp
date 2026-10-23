@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "pcsx2/SIO/Pad/Pad.h"
@@ -24,16 +24,16 @@
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QMessageBox>
 
-GameSummaryWidget::GameSummaryWidget(const GameList::Entry* entry, SettingsWindow* dialog, QWidget* parent)
-	: m_dialog(dialog)
+GameSummaryWidget::GameSummaryWidget(const GameList::Entry* entry, SettingsWindow* settings_dialog, QWidget* parent)
+	: SettingsWidget(settings_dialog, parent)
 {
-	m_ui.setupUi(this);
+	setupTab(m_ui);
 
 	const QString base_path(QtHost::GetResourcesBasePath());
 	for (int i = 0; i < m_ui.region->count(); i++)
 	{
 		m_ui.region->setItemIcon(i,
-			QIcon(QStringLiteral("%1/icons/flags/%2.png").arg(base_path).arg(GameList::RegionToString(static_cast<GameList::Region>(i)))));
+			QIcon(QStringLiteral("%1/icons/flags/%2.svg").arg(base_path).arg(GameList::RegionToFlagFilename(static_cast<GameList::Region>(i)))));
 	}
 
 	m_entry_path = entry->path;
@@ -45,13 +45,17 @@ GameSummaryWidget::GameSummaryWidget(const GameList::Entry* entry, SettingsWindo
 	connect(m_ui.inputProfile, &QComboBox::currentIndexChanged, this, &GameSummaryWidget::onInputProfileChanged);
 	connect(m_ui.verify, &QAbstractButton::clicked, this, &GameSummaryWidget::onVerifyClicked);
 	connect(m_ui.searchHash, &QAbstractButton::clicked, this, &GameSummaryWidget::onSearchHashClicked);
-	connect(m_ui.checkWiki, &QAbstractButton::clicked, this, [this, entry]() { onCheckWikiClicked(entry); });
+	connect(m_ui.checkWiki, &QAbstractButton::clicked, this,
+		[this, serial = entry->serial]() { onCheckWikiClicked(serial); });
 
 	bool has_custom_title = false, has_custom_region = false;
 	GameList::CheckCustomAttributesForPath(m_entry_path, has_custom_title, has_custom_region);
 	m_ui.restoreTitle->setEnabled(has_custom_title);
 	m_ui.restoreRegion->setEnabled(has_custom_region);
 	m_ui.checkWiki->setEnabled(!entry->serial.empty());
+
+	dialog()->registerWidgetHelp(m_ui.inputProfile, tr("Input Profile"), tr("Shared (Default)"),
+		tr("Selects the controller input profile to use for this game. Choosing a specific profile allows custom controller bindings without changing global settings."));
 }
 
 GameSummaryWidget::~GameSummaryWidget() = default;
@@ -73,16 +77,17 @@ void GameSummaryWidget::populateDetails(const GameList::Entry* entry)
 	m_ui.type->setCurrentIndex(static_cast<int>(entry->type));
 	m_ui.region->setCurrentIndex(static_cast<int>(entry->region));
 	//: First arg is a GameList compat; second is a string with space followed by star rating OR empty if Unknown compat
-	m_ui.compatibility->setText(tr("%0%1")
-		.arg(GameList::EntryCompatibilityRatingToString(entry->compatibility_rating))
-		.arg([entry]() {
-			if (entry->compatibility_rating == GameList::CompatibilityRating::Unknown)
-				return QStringLiteral("");
+	m_ui.compatibility->setText(
+		tr("%0%1")
+			.arg(GameList::EntryCompatibilityRatingToString(entry->compatibility_rating, true))
+			.arg([entry]() {
+				if (entry->compatibility_rating == GameList::CompatibilityRating::Unknown)
+					return QStringLiteral("");
 
-			const qsizetype compatibility_value = static_cast<qsizetype>(entry->compatibility_rating);
-			//: First arg is filled-in stars for game compatibility; second is empty stars; should be swapped for RTL languages
-			return tr(" %0%1").arg(QStringLiteral("★").repeated(compatibility_value - 1)).arg(QStringLiteral("☆").repeated(6 - compatibility_value));
-		}()));
+				const qsizetype compatibility_value = static_cast<qsizetype>(entry->compatibility_rating);
+				//: First arg is filled-in stars for game compatibility; second is empty stars; should be swapped for RTL languages
+				return tr(" %0%1").arg(QStringLiteral("★").repeated(compatibility_value - 1)).arg(QStringLiteral("☆").repeated(6 - compatibility_value));
+			}()));
 
 	int row = 0;
 	m_ui.detailsFormLayout->getWidgetPosition(m_ui.titleSort, &row, nullptr);
@@ -90,7 +95,7 @@ void GameSummaryWidget::populateDetails(const GameList::Entry* entry)
 	m_ui.detailsFormLayout->getWidgetPosition(m_ui.titleEN, &row, nullptr);
 	m_ui.detailsFormLayout->setRowVisible(row, !entry->title_en.empty());
 
-	std::optional<std::string> profile(m_dialog->getStringValue("EmuCore", "InputProfileName", std::nullopt));
+	std::optional<std::string> profile(dialog()->getStringValue("EmuCore", "InputProfileName", std::nullopt));
 	if (profile.has_value())
 		m_ui.inputProfile->setCurrentIndex(m_ui.inputProfile->findText(QString::fromStdString(profile.value())));
 	else
@@ -119,7 +124,7 @@ void GameSummaryWidget::populateDiscPath(const GameList::Entry* entry)
 {
 	if (entry->type == GameList::EntryType::ELF)
 	{
-		std::optional<std::string> iso_path(m_dialog->getStringValue("EmuCore", "DiscPath", std::nullopt));
+		std::optional<std::string> iso_path(dialog()->getStringValue("EmuCore", "DiscPath", std::nullopt));
 		if (iso_path.has_value() && !iso_path->empty())
 			m_ui.discPath->setText(QString::fromStdString(iso_path.value()));
 
@@ -142,27 +147,27 @@ void GameSummaryWidget::populateDiscPath(const GameList::Entry* entry)
 void GameSummaryWidget::onInputProfileChanged(int index)
 {
 	if (index == 0)
-		m_dialog->setStringSettingValue("EmuCore", "InputProfileName", std::nullopt);
+		dialog()->setStringSettingValue("EmuCore", "InputProfileName", std::nullopt);
 	else
-		m_dialog->setStringSettingValue("EmuCore", "InputProfileName", m_ui.inputProfile->itemText(index).toUtf8());
+		dialog()->setStringSettingValue("EmuCore", "InputProfileName", m_ui.inputProfile->itemText(index).toUtf8());
 }
 
 void GameSummaryWidget::onDiscPathChanged(const QString& value)
 {
 	if (value.isEmpty())
-		m_dialog->removeSettingValue("EmuCore", "DiscPath");
+		dialog()->removeSettingValue("EmuCore", "DiscPath");
 	else
-		m_dialog->setStringSettingValue("EmuCore", "DiscPath", value.toStdString().c_str());
+		dialog()->setStringSettingValue("EmuCore", "DiscPath", value.toStdString().c_str());
 
 	// force rescan of elf to update the serial
 	g_main_window->rescanFile(m_entry_path);
-	
+
 	auto lock = GameList::GetLock();
 	const GameList::Entry* entry = GameList::GetEntryForPath(m_entry_path.c_str());
 	if (entry)
 	{
 		populateDetails(entry);
-		m_dialog->setSerial(entry->serial);
+		dialog()->setSerial(entry->serial);
 		m_ui.checkWiki->setEnabled(!entry->serial.empty());
 	}
 }
@@ -279,7 +284,8 @@ void GameSummaryWidget::onVerifyClicked()
 	Error error;
 	if (!hasher.Open(m_entry_path, &error))
 	{
-		setVerifyResult(QString::fromStdString(error.GetDescription()));
+		QString message(QString::fromStdString(error.GetDescription()));
+		QMessageBox::critical(QtUtils::GetRootWidget(this), tr("Error"), message);
 		return;
 	}
 
@@ -339,15 +345,15 @@ void GameSummaryWidget::onVerifyClicked()
 		if (!hentry->version.empty())
 		{
 			setVerifyResult(tr("Verified as %1 [%2] (Version %3).")
-								.arg(QString::fromStdString(hentry->name))
-								.arg(QString::fromStdString(hentry->serial))
-								.arg(QString::fromStdString(hentry->version)));
+					.arg(QString::fromStdString(hentry->name))
+					.arg(QString::fromStdString(hentry->serial))
+					.arg(QString::fromStdString(hentry->version)));
 		}
 		else
 		{
 			setVerifyResult(tr("Verified as %1 [%2].")
-								.arg(QString::fromStdString(hentry->name))
-								.arg(QString::fromStdString(hentry->serial)));
+					.arg(QString::fromStdString(hentry->name))
+					.arg(QString::fromStdString(hentry->serial)));
 		}
 	}
 	else
@@ -361,12 +367,12 @@ void GameSummaryWidget::onSearchHashClicked()
 	if (m_redump_search_keyword.empty())
 		return;
 
-	QtUtils::OpenURL(this, fmt::format("http://redump.org/discs/quicksearch/{}", m_redump_search_keyword).c_str());
+	QtUtils::OpenURL(this, fmt::format("https://redump.info/discs?q={}", m_redump_search_keyword).c_str());
 }
 
-void GameSummaryWidget::onCheckWikiClicked(const GameList::Entry* entry)
+void GameSummaryWidget::onCheckWikiClicked(const std::string& serial)
 {
-	QtUtils::OpenURL(this, fmt::format("https://wiki.pcsx2.net/{}", entry->serial).c_str());
+	QtUtils::OpenURL(this, fmt::format("https://wiki.pcsx2.net/{}", serial).c_str());
 }
 
 void GameSummaryWidget::setVerifyResult(QString error)
@@ -396,7 +402,7 @@ void GameSummaryWidget::repopulateCurrentDetails()
 	if (entry)
 	{
 		populateDetails(entry);
-		m_dialog->setWindowTitle(QString::fromStdString(entry->title));
+		dialog()->setWindowTitle(QString::fromStdString(entry->title));
 	}
 }
 
@@ -415,3 +421,5 @@ void GameSummaryWidget::setCustomRegion(int region)
 	GameList::SaveCustomRegionForPath(m_entry_path, region);
 	repopulateCurrentDetails();
 }
+
+#include "moc_GameSummaryWidget.cpp"

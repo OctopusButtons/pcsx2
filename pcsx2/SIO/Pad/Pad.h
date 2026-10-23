@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -65,6 +65,10 @@ namespace Pad
 
 	// Sets the specified bind on a controller to the specified pressure (normalized to 0..1).
 	void SetControllerState(u32 controller, u32 bind, float value);
+
+	// Resets all input binds on a controller to their default state.
+	void ResetControllerInputs(u32 controller);
+	void ResetAllControllerInputs();
 
 	bool Freeze(StateWrapper& sw);
 

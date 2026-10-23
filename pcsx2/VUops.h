@@ -1,17 +1,9 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 #include "VU.h"
 #include "VUflags.h"
-
-#define float_to_int4(x)	((float)x * (1.0f / 0.0625f))
-#define float_to_int12(x)	((float)x * (1.0f / 0.000244140625f))
-#define float_to_int15(x)	((float)x * (1.0f / 0.000030517578125))
-
-#define int4_to_float(x)	(float)((float)x * 0.0625f)
-#define int12_to_float(x)	(float)((float)x * 0.000244140625f)
-#define int15_to_float(x)	(float)((float)x * 0.000030517578125)
 
 struct _VURegsNum {
 	u8 pipe; // if 0xff, COP2

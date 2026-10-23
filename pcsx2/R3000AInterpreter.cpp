@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "R3000A.h"
@@ -120,12 +120,18 @@ void psxBreakpoint(bool memcheck)
 {
 	u32 pc = psxRegs.pc;
 	if (CBreakPoints::CheckSkipFirst(BREAKPOINT_IOP, pc) != 0)
+	{
+		CBreakPoints::ClearSkipFirst(BREAKPOINT_IOP);
 		return;
+	}
 
 	if (!memcheck)
 	{
 		auto cond = CBreakPoints::GetBreakPointCondition(BREAKPOINT_IOP, pc);
 		if (cond && !cond->Evaluate())
+			return;
+
+		if (!CBreakPoints::HandleBreakpointHit(BREAKPOINT_IOP, pc))
 			return;
 	}
 
@@ -143,10 +149,10 @@ void psxMemcheck(u32 op, u32 bits, bool store)
 
 	u32 end = start + bits / 8;
 
-	auto checks = CBreakPoints::GetMemChecks(BREAKPOINT_IOP);
+	const auto checks = CBreakPoints::GetMemChecks(BREAKPOINT_IOP);
 	for (size_t i = 0; i < checks.size(); i++)
 	{
-		auto& check = checks[i];
+		const auto& check = checks[i];
 
 		if (check.result == 0)
 			continue;
@@ -208,6 +214,8 @@ static __fi void execI()
 		psxBreakpoint(false);
 
 	psxCheckMemcheck();
+	
+	CBreakPoints::CommitClearSkipFirst(BREAKPOINT_IOP);
 #endif
 
 	// Inject IRX hack
@@ -241,6 +249,11 @@ static void doBranch(s32 tar) {
 		R3000SymbolGuardian.ClearIrxModules();
 	}
 
+	// Override the memory size argument to IOPBOOT
+	if(static_cast<u32>(tar) == 0xbfc4a000) {
+		psxRegs.GPR.n.a0 = Ps2MemSize::ExposedIopRam >> 20;
+	}
+
 	branch2 = iopIsDelaySlot = true;
 	branchPC = tar;
 	execI();
@@ -265,7 +278,7 @@ static s32 intExecuteBlock( s32 eeCycles )
 {
 	psxRegs.iopBreak = 0;
 	psxRegs.iopCycleEE = eeCycles;
-	u32 lastIOPCycle = 0;
+	u64 lastIOPCycle = 0;
 
 	while (psxRegs.iopCycleEE > 0)
 	{

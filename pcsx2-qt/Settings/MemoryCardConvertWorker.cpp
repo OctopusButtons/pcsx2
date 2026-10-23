@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "MemoryCardConvertWorker.h"
@@ -8,7 +8,7 @@
 #include "common/FileSystem.h"
 
 MemoryCardConvertWorker::MemoryCardConvertWorker(QWidget* parent, MemoryCardType type, MemoryCardFileType fileType, const std::string& srcFileName, const std::string& destFileName)
-		: QtAsyncProgressThread(parent)
+	: QtAsyncProgressThread(parent)
 {
 	this->type = type;
 	this->fileType = fileType;
@@ -75,7 +75,7 @@ bool MemoryCardConvertWorker::ConvertToFile(const std::string& srcFolderName, co
 	{
 		sourceFolderMemoryCard.Read(sourceBuffer.data() + address, address, FolderMemoryCard::PageSizeRaw);
 		address += FolderMemoryCard::PageSizeRaw;
-		
+
 		// Only report progress every 16 pages. Substantially speeds up the conversion.
 		if (address % (FolderMemoryCard::PageSizeRaw * 16) == 0)
 			this->SetProgressValue(address);
@@ -118,6 +118,16 @@ bool MemoryCardConvertWorker::ConvertToFolder(const std::string& srcFileName, co
 	}
 
 	std::vector<u8> sourceBuffer = sourceBufferOpt.value();
+
+	// MemCard PRO, SD2PSX and other MMCE cards have no ECC bytes
+	FileMcd_InsertECC(sourceBuffer);
+
+	if ((sourceBuffer.size() % FolderMemoryCard::PageSizeRaw) != 0)
+	{
+		Console.Error("%s(%s, %s, %d) File Memory Card is not a whole number of pages!", __FUNCTION__, srcFileName.c_str(), destFolderName.c_str(), type);
+		return false;
+	}
+
 	// Set progress bar to the literal number of bytes in the memcard.
 	// Plus two because there is a lag period after the Save calls complete
 	// where the progress bar stalls out; this lets us stop the progress bar
@@ -140,7 +150,7 @@ bool MemoryCardConvertWorker::ConvertToFolder(const std::string& srcFileName, co
 		{
 			targetFolderMemoryCard.Save(sourceBuffer.data() + address, address, FolderMemoryCard::PageSizeRaw);
 			address += FolderMemoryCard::PageSizeRaw;
-			
+
 			// Only report progress every 16 pages. Substantially speeds up the conversion.
 			if (address % (FolderMemoryCard::PageSizeRaw * 16) == 0)
 				this->SetProgressValue(address + (i * sourceBuffer.size()));
